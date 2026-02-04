@@ -1,0 +1,14 @@
+<additional>
+    <vType id="car" length="5" tau="1.2" sigma="0.2" minGap="1.5" carFollowModel="Krauss" />  
+    <vType id="uav_type" 
+           vClass="custom1" 
+           length="0.5" 
+           width="0.5" 
+           height="0.3" 
+           maxSpeed="20" 
+           speedFactor="1.0" 
+           speedDev="0.0"
+           color="255,0,0"
+           guiShape="aircraft"
+           latAlignment="center" />
+</additional>

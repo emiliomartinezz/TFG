@@ -1,0 +1,6 @@
+traci
+numpy
+ujson
+pandas 
+matplotlib
+shapely  

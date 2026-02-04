@@ -1,0 +1,2 @@
+python "%SUMO_HOME%\tools\randomTrips.py" -n Nicosia.net.xml --fringe-factor 5 --insertion-rate 2000 -r Nicosia.rou.xml -b 0 -e 10800 --trip-attributes "departLane=\"best\"" --fringe-start-attributes "departSpeed=\"max\"" --validate --remove-loops --via-edge-types highway.motorway,highway.motorway_link,highway.trunk_link,highway.primary_link,highway.secondary_link,highway.tertiary_link --vehicle-class passenger --vclass passenger --prefix veh --min-distance 300 --min-distance.fringe 10 --allow-fringe.min-length 1000 --lanes
+
