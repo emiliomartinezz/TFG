@@ -9,8 +9,13 @@
         40.0
     ],
     "UAV Speed": 18,
+    "UAV Cruise Speed": 10,
+    "UAV Max Speed": 12,
+    "Hovering autonomy (s)": 1800,
+    "Cruise autonomy (s)": 2040,
+    "Max velocity autonomy (s)": 1500,
     "Yaw Speed": 15,
-    "Battery Mode": false,
+    "Battery Mode": true,
     "GUI Option": true,
     "Uav Mode": "Hovering",
     "Network file": "/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_buslanes.net.xml",
@@ -18,7 +23,7 @@
     "Step length (s)": 1.0,
     "Total time (s)": 2000,
     "Delay": 75,
-    "Number of UAVs": 5,
+    "Number of UAVs": 3,
     "uav_data": {
         "0": [
             [0,   1458.79, 985.86, 0,   0],    

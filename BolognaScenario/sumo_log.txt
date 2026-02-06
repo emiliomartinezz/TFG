@@ -1,28 +1,20 @@
-***Starting server on port 47947 ***
-Loading net-file from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_buslanes.net.xml' ... done (42ms).
+***Starting server on port 51469 ***
+Loading net-file from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_buslanes.net.xml' ... done (37ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_vtypes.add.xml' ... done (1ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_detectors.add.xml' ... done (1ms).
-Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_bus_stops.add.xml' ... done (1ms).
+Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_bus_stops.add.xml' ... done (0ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_tls.add.xml' ... done (0ms).
 Loading route-files incrementally from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta.rou.xml'
 Loading route-files incrementally from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_busses.rou.xml'
 Loading done.
 Simulation started with time: 0.00.
-Warning: Vehicle 'Pepoli_10_56'; collision with vehicle 'uav4', lane='201_2', gap=-1.98, time=163.00, stage=remoteControl.
-Warning: Vehicle 'Pepoli_10_56' performs emergency braking on lane '201_2' with decel=9.00, wished=4.50, severity=1.00, time=164.00.
-Warning: Vehicle 'uav1'; collision with vehicle 'Vittorio_Veneto_2_83', lane='17_1', gap=-2.36, time=443.00, stage=remoteControl.
-Warning: Vehicle 'Vittorio_Veneto_32_84'; collision with vehicle 'uav1', lane='17_1', gap=-9.93, time=602.00, stage=remoteControl.
-Warning: Vehicle 'uav2'; collision with vehicle 'Silvani_7_231', lane='202_0', gap=-0.39, time=676.00, stage=remoteControl.
-Warning: Vehicle 'Silvani_7_244'; collision with vehicle 'uav2', lane='202_0', gap=-2.61, time=676.00, stage=remoteControl.
-Simulation ended at time: 727.00.
+Simulation ended at time: 407.00.
 Performance:
- Duration: 54.70s
- TraCI-Duration: 12.68s
- Real time factor: 13.2904
- UPS: 6115.994223
+ Duration: 30.72s
+ TraCI-Duration: 5.12s
+ Real time factor: 13.2483
+ UPS: 4871.748967
 Vehicles:
- Inserted: 1714 (Loaded: 1961)
- Running: 576
- Waiting: 57
- Teleports: 0 (Collisions: 5)
- Emergency Braking: 1
+ Inserted: 979 (Loaded: 1479)
+ Running: 541
+ Waiting: 5
