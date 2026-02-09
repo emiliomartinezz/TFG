@@ -145,7 +145,7 @@ class UAVSimulation:
             self.fov_degrees = [66.9161, 40.2499]
             t_h, t_c, t_m = 30*60, 34*60, 25*60 # tiempo de autonomia en: hovering, velocidad crucero y maxima velocidad respectivamente
             self.v_cruise = 6.0 #velocidad crucero, 21.6 km/h
-            self.uav_speed = 11.0 #velocidad actual del uav, se usará para calcular la descarga de batería
+            self.uav_speed = 12.0 #velocidad actual del uav, se usará para calcular la descarga de batería
             self.v_max = 12.0 #velocidad maxima, 43.2 km/h
             self.yaw_speed = 10
             self.battery_life = 600 # 30 minutes 
@@ -274,6 +274,11 @@ class UAVSimulation:
         poi_exists = {i: False for i in range(self.num_UAVs)}
         #Flag used to avoid multiple warnings for the same UAV when it reaches the battery warning threshold
         warning_sent = {str(i): False for i in range(self.num_UAVs)}
+        #Flag used to avoid multiple warnings for the same UAV when it reaches the battery life threshold and is removed from the simulation
+        stop_sent = {str(i): False for i in range(self.num_UAVs)}
+        #List to keep track of active UAVs, used to stop the simulation when all UAVs are removed due to battery life end
+        uavs_activos = [i for i in range(self.num_UAVs)]
+        uav_state = {str(i): "MISSION" for i in range(self.num_UAVs)}
         
         with open(output_file, mode='w', newline='') as file:
             writer = csv.writer(file, delimiter=',')
@@ -316,7 +321,8 @@ class UAVSimulation:
 
                 if step == 1:
                     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
-
+                if step == 650:
+                    print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
                 # if step == 5:
                 #     print(traci.vehicle.getPosition("uav0"))
                 #     print(traci.vehicle.getPosition("uav1"))
@@ -404,14 +410,20 @@ class UAVSimulation:
                             warning_sent[str(uav_id)] = True
                             #messagebox.showwarning("Battery Warning", f"Warning: UAV {uav_id} has 5 minutes of battery left.")
                             
-                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps:
+                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps and not stop_sent[str(uav_id)]:
                             if polygon_exists[uav_id]:
                                 self.calc.remove_fov_polygon(polygon_ids[uav_id], border_polygon_ids[uav_id])
                                 polygon_exists[uav_id] = False
                             if poi_exists[uav_id]: 
                                 self.calc.remove_poi(poi_ids[uav_id])
                                 poi_exists[uav_id] = False
+                            if veh_id in traci.vehicle.getIDList():
+                                traci.vehicle.remove(f"uav{uav_id}")
+                                uavs_activos.remove(uav_id)
+                            if not uavs_activos:
+                                    self.stop_flag = True
                             #print(f" \n Uav: {uav_id} lost signal \n")
+                            stop_sent[str(uav_id)] = True
                             non_blocking_warning("Signal Lost", f"UAV {uav_id} lost signal.")
                             #messagebox.showwarning("Signal Lost", f"UAV {uav_id} lost signal.")                       
                             continue

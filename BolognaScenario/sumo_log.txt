@@ -1,5 +1,5 @@
-***Starting server on port 51469 ***
-Loading net-file from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_buslanes.net.xml' ... done (37ms).
+***Starting server on port 50647 ***
+Loading net-file from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_buslanes.net.xml' ... done (22ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_vtypes.add.xml' ... done (1ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_detectors.add.xml' ... done (1ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_bus_stops.add.xml' ... done (0ms).
@@ -8,13 +8,19 @@ Loading route-files incrementally from '/home/emilio/SUMO-UAV-Py/BolognaScenario
 Loading route-files incrementally from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_busses.rou.xml'
 Loading done.
 Simulation started with time: 0.00.
-Simulation ended at time: 407.00.
+Warning: Vehicle 'Vittorio_Veneto_2_77'; collision with vehicle 'uav1', lane='17_1', gap=-11.89, time=602.00, stage=remoteControl.
+Warning: Vehicle 'uav1' was removed though being controlled by TraCI
+Warning: Vehicle 'uav2' was removed though being controlled by TraCI
+Error: tcpip::Socket::recvAndCheck @ recv: peer shutdown
+Quitting (on error).
+Simulation ended at time: 628.00.
 Performance:
- Duration: 30.72s
- TraCI-Duration: 5.12s
- Real time factor: 13.2483
- UPS: 4871.748967
+ Duration: 84.98s
+ TraCI-Duration: 8.97s
+ Real time factor: 7.39015
+ UPS: 3249.852903
 Vehicles:
- Inserted: 979 (Loaded: 1479)
- Running: 541
- Waiting: 5
+ Inserted: 1504 (Loaded: 1959)
+ Running: 581
+ Waiting: 27
+ Teleports: 0 (Collisions: 1)
