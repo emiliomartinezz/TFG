@@ -106,6 +106,7 @@ class UAVSimulation:
         self.stop_flag = False
         self.calc = Calculations(self.uav_speed, self.simulation_step_length, self.yaw_speed)
         self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
+        self.uav_home = {uav_id: self.uav_positions_list[uav_id][0] for uav_id in range(self.num_UAVs)}
 
     def read_config(self, config_file):
         try:
@@ -145,10 +146,10 @@ class UAVSimulation:
             self.fov_degrees = [66.9161, 40.2499]
             t_h, t_c, t_m = 30*60, 34*60, 25*60 # tiempo de autonomia en: hovering, velocidad crucero y maxima velocidad respectivamente
             self.v_cruise = 6.0 #velocidad crucero, 21.6 km/h
-            self.uav_speed = 12.0 #velocidad actual del uav, se usará para calcular la descarga de batería
+            self.uav_speed = 6.0 #velocidad actual del uav, se usará para calcular la descarga de batería
             self.v_max = 12.0 #velocidad maxima, 43.2 km/h
             self.yaw_speed = 10
-            self.battery_life = 600 # 30 minutes 
+            self.battery_life = 1800 # 30 minutes 
         elif self.UavModel == 'Manual':
             self.fov_degrees = list(map(float, config['FOV (deg)']))
             t_h = config.get('Hovering autonomy (s)', 1800) # default 30 minutes
@@ -235,8 +236,6 @@ class UAVSimulation:
         if "dummy" not in traci.route.getIDList():
             traci.route.add("dummy", [dummy_edge])
 
-        offset = 0.5
-
         for uav_id in range(self.num_UAVs):
             veh_id = f"uav{uav_id}"
 
@@ -274,11 +273,14 @@ class UAVSimulation:
         poi_exists = {i: False for i in range(self.num_UAVs)}
         #Flag used to avoid multiple warnings for the same UAV when it reaches the battery warning threshold
         warning_sent = {str(i): False for i in range(self.num_UAVs)}
+        #Flag used to avoid multiple warnings for the same UAV when it returns to the base
+        return_sent = {str(i): False for i in range(self.num_UAVs)}
         #Flag used to avoid multiple warnings for the same UAV when it reaches the battery life threshold and is removed from the simulation
         stop_sent = {str(i): False for i in range(self.num_UAVs)}
         #List to keep track of active UAVs, used to stop the simulation when all UAVs are removed due to battery life end
         uavs_activos = [i for i in range(self.num_UAVs)]
         uav_state = {str(i): "MISSION" for i in range(self.num_UAVs)}
+
         
         with open(output_file, mode='w', newline='') as file:
             writer = csv.writer(file, delimiter=',')
@@ -301,7 +303,16 @@ class UAVSimulation:
 
                 for uav_id in range(self.num_UAVs):
                     veh_id = f"uav{uav_id}"
-                    init_pos = self.uav_positions_list[uav_id][step]
+                    
+                    # Check if step is within bounds of available positions
+                    # if step >= len(self.uav_positions_list[uav_id]):
+                    #     print(f"[WARN] {veh_id} no tiene posición para step {step}, se omite moveToXY", flush=True)
+                    #     continue
+                    
+                    #init_pos = self.uav_positions_list[uav_id][step]
+                    traj = self.uav_positions_list[uav_id]
+                    idx = min(step, len(traj) - 1)
+                    init_pos = traj[idx]
                     x_real, y_real = init_pos[0], init_pos[1]
 
                     if veh_id not in traci.vehicle.getIDList():
@@ -321,8 +332,12 @@ class UAVSimulation:
 
                 if step == 1:
                     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
-                if step == 650:
-                    print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
+
+                # if step == 650:
+                #     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
+                # if step == 1700:
+                #     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
+
                 # if step == 5:
                 #     print(traci.vehicle.getPosition("uav0"))
                 #     print(traci.vehicle.getPosition("uav1"))
@@ -369,7 +384,6 @@ class UAVSimulation:
                 #     print(traci.vehicle.getPosition("uav1"))
                 #     print(traci.vehicle.getPosition("uav2"))
                 #     print("\n")
-
                 
     
                 for veh_id in traci.simulation.getDepartedIDList():
@@ -404,12 +418,27 @@ class UAVSimulation:
 
                         battery_life_steps[str(uav_id)] += discharge_rate
     
-                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (300 / self.simulation_step_length) and not warning_sent[str(uav_id)]:
+                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (500 / self.simulation_step_length) and not warning_sent[str(uav_id)]:
                             #print(f" \n Warning: Uav: {uav_id} has 5 minutes of battery left \n ")
-                            non_blocking_warning("Battery Warning", f"Warning: UAV {uav_id} has 5 minutes of battery left.")
+                            battery_percentage =  500 / self.battery_life_steps * 100
+                            non_blocking_warning("Battery Warning", f"Warning: UAV {uav_id} has {battery_percentage} percentage of battery left.")
                             warning_sent[str(uav_id)] = True
                             #messagebox.showwarning("Battery Warning", f"Warning: UAV {uav_id} has 5 minutes of battery left.")
-                            
+                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (100 / self.simulation_step_length) and not return_sent[str(uav_id)]:
+                             if uav_state[str(uav_id)] == "MISSION":
+                                uav_state[str(uav_id)] = "RETURNING"
+                                non_blocking_warning("Battery Warning", f"Warning: Returning to base")
+                                home = self.uav_home[uav_id]
+                                t_now = step * self.simulation_step_length
+                                curr_pos = uav_positions[step]
+                                curr_angle = uav_yaw_angles[step]
+                                self.uav_data[str(uav_id)] = [
+                                    [t_now, curr_pos[0], curr_pos[1], curr_pos[2], curr_angle],
+                                    [t_now + 1, home[0], home[1], home[2], 0]
+                                ]
+                                self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
+                                return_sent[str(uav_id)] = True
+
                         if battery_life_steps[str(uav_id)] >= self.battery_life_steps and not stop_sent[str(uav_id)]:
                             if polygon_exists[uav_id]:
                                 self.calc.remove_fov_polygon(polygon_ids[uav_id], border_polygon_ids[uav_id])
