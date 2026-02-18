@@ -1,0 +1,9 @@
+<vTypes>
+	<vType id="uav_type" 
+       vClass="passenger" 
+       length="0.5" 
+       width="0.5" 
+       height="0.3" 
+       maxSpeed="20"
+       guiShape="aircraft"/>
+</vTypes>

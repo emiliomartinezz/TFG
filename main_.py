@@ -12,6 +12,7 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk, Toplevel, Label
 from _utils import Calculations
+import copy
 
 import time 
 
@@ -149,7 +150,7 @@ class UAVSimulation:
             self.uav_speed = 6.0 #velocidad actual del uav, se usará para calcular la descarga de batería
             self.v_max = 12.0 #velocidad maxima, 43.2 km/h
             self.yaw_speed = 10
-            self.battery_life = 1800 # 30 minutes 
+            self.battery_life = 600 # 30 minutes 
         elif self.UavModel == 'Manual':
             self.fov_degrees = list(map(float, config['FOV (deg)']))
             t_h = config.get('Hovering autonomy (s)', 1800) # default 30 minutes
@@ -174,6 +175,8 @@ class UAVSimulation:
             raise FileNotFoundError(f"SUMO configuration file {self.network_file} not found.")
     
         self.uav_data = config['uav_data']
+        # Keep a copy of the original data for reference
+        self.original_uav_data = copy.deepcopy(self.uav_data)  
         
         if self.server_option:
             self.uav_data = {str(i): [[0] * 5] for i in range(self.num_UAVs)}
@@ -279,7 +282,12 @@ class UAVSimulation:
         stop_sent = {str(i): False for i in range(self.num_UAVs)}
         #List to keep track of active UAVs, used to stop the simulation when all UAVs are removed due to battery life end
         uavs_activos = [i for i in range(self.num_UAVs)]
+        #State of the UAV, used to determine if it is on a mission,returning to base or charging
         uav_state = {str(i): "MISSION" for i in range(self.num_UAVs)}
+        charging_time_steps = int(200 / self.simulation_step_length)
+        charging_counter = {str(i): 0 for i in range(self.num_UAVs)}
+        # Track the original-path time at which the UAV left its mission
+        departure_time = {str(i): 0 for i in range(self.num_UAVs)}
 
         
         with open(output_file, mode='w', newline='') as file:
@@ -300,8 +308,71 @@ class UAVSimulation:
                 
                 traci.simulationStep()
                 step += 1
-
                 for uav_id in range(self.num_UAVs):
+                    if uav_state[str(uav_id)] == "CHARGING":
+
+                        charging_counter[str(uav_id)] += 1
+
+                        # Keep vehicle at home position so SUMO doesn't lose track of it
+                        home = self.uav_home[uav_id]
+                        veh_id = f"uav{uav_id}"
+                        if veh_id in traci.vehicle.getIDList():
+                            traci.vehicle.moveToXY(
+                                vehID=veh_id,
+                                edgeID="",
+                                laneIndex=-1,
+                                x=home[0],
+                                y=home[1],
+                                keepRoute=2
+                            )
+
+                        if charging_counter[str(uav_id)] >= charging_time_steps:
+                            battery_life_steps[str(uav_id)] = 0
+                            warning_sent[str(uav_id)] = False
+                            return_sent[str(uav_id)] = False
+                            stop_sent[str(uav_id)] = False
+                            non_blocking_warning("Charging Complete", f"UAV {uav_id} has finished charging and is back on a mission.")
+                            # Resume original path from where the UAV left off, time-shifted to now
+                            original_data = copy.deepcopy(self.original_uav_data[str(uav_id)])
+                            dep_t = departure_time[str(uav_id)]
+                            current_time = step * self.simulation_step_length
+                            # Keep only waypoints at or after the departure time
+                            remaining = [p for p in original_data if p[0] >= dep_t]
+                            if not remaining:
+                                remaining = [original_data[-1]]
+                            # Shift timestamps so the first remaining waypoint starts at current_time
+                            time_offset = current_time - remaining[0][0]
+                            for point in remaining:
+                                point[0] += time_offset
+                            # Remove waypoints beyond simulation end
+                            total_time = self.total_simulation_steps * self.simulation_step_length
+                            remaining = [p for p in remaining if p[0] <= total_time]
+                            # Ensure last waypoint reaches simulation end
+                            if remaining and remaining[-1][0] < total_time:
+                                last = list(remaining[-1])
+                                last[0] = total_time
+                                remaining.append(last)
+                            # Prepend home position at t=0 so path covers all steps
+                            home_pos = self.uav_home[uav_id]
+                            first_yaw = remaining[0][4] if remaining else 0
+                            remaining.insert(0, [0, home_pos[0], home_pos[1], home_pos[2], first_yaw])
+                            self.uav_data[str(uav_id)] = remaining
+                            self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
+                            uav_state[str(uav_id)] = "MISSION"
+            
+                    if uav_state[str(uav_id)] == "RETURNING":
+                            home = self.uav_home[uav_id]
+                            curr_pos_xy = traci.vehicle.getPosition(f"uav{uav_id}")
+                            curr_pos = np.array(curr_pos_xy)
+                            home_xy = np.array([home[0], home[1]])
+                            distance = np.linalg.norm(curr_pos - home_xy)
+                            #print(f"UAV {uav_id} returning to base. Current position: {curr_pos}, Home position: {home}")
+                            #print(f"Distance to home: {distance}")
+                            if distance < 0.5:
+                                uav_state[str(uav_id)] = "CHARGING"
+                                charging_counter[str(uav_id)] = 0
+                                non_blocking_warning("Charging", f"UAV {uav_id} charging...")
+
                     veh_id = f"uav{uav_id}"
                     
                     # Check if step is within bounds of available positions
@@ -310,9 +381,14 @@ class UAVSimulation:
                     #     continue
                     
                     #init_pos = self.uav_positions_list[uav_id][step]
+                    times = self.time_list[uav_id]
                     traj = self.uav_positions_list[uav_id]
-                    idx = min(step, len(traj) - 1)
-                    init_pos = traj[idx]
+
+                    if step in times:
+                        idx = times.index(step)
+                        init_pos = traj[idx]
+                    else:
+                        continue
                     x_real, y_real = init_pos[0], init_pos[1]
 
                     if veh_id not in traci.vehicle.getIDList():
@@ -333,8 +409,13 @@ class UAVSimulation:
                 if step == 1:
                     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
 
-                # if step == 650:
-                #     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
+
+                print(traci.vehicle.getPosition("uav0"))
+                print(traci.vehicle.getPosition("uav1"))
+                print(traci.vehicle.getPosition("uav2"))
+                print("\n")
+                if step == 650:
+                    print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
                 # if step == 1700:
                 #     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
 
@@ -351,15 +432,48 @@ class UAVSimulation:
                 #     print(traci.vehicle.getPosition("uav2"))
                 #     print("\n")
                 #     #print("Vehicles after 50 step:", traci.vehicle.getIDList(), flush=True)
+                # if step == 140:
+                #     print(traci.vehicle.getPosition("uav0"))
+                #     print(traci.vehicle.getPosition("uav1"))
+                #     print(traci.vehicle.getPosition("uav2"))
+                #     print("\n")
 
+                # if step == 150:
+                #     print("150")   
+                #     print(traci.vehicle.getPosition("uav0"))
+                #     print(traci.vehicle.getPosition("uav1"))
+                #     print(traci.vehicle.getPosition("uav2"))
+                #     print("\n")
+                #     print("Vehicles after 150 step:", traci.vehicle.getIDList(), flush=True)
+
+                # if step == 160:
+                #     print("160")
+                #     print(traci.vehicle.getPosition("uav0"))
+                #     print(traci.vehicle.getPosition("uav1"))
+                #     print(traci.vehicle.getPosition("uav2"))
+                #     print("\n")
+
+                # if step == 168:
+                #     print(traci.vehicle.getPosition("uav0"))
+                #     print(traci.vehicle.getPosition("uav1"))
+                #     print(traci.vehicle.getPosition("uav2"))
+                #     print("\n")
+                
                 # if step == 150:
                 #     print(traci.vehicle.getPosition("uav0"))
                 #     print(traci.vehicle.getPosition("uav1"))
                 #     print(traci.vehicle.getPosition("uav2"))
                 #     print("\n")
-                #     #print("Vehicles after 150 step:", traci.vehicle.getIDList(), flush=True)
+
+                # if step == 180:
+                #     print("180")
+                #     print(traci.vehicle.getPosition("uav0"))
+                #     print(traci.vehicle.getPosition("uav1"))
+                #     print(traci.vehicle.getPosition("uav2"))
+                #     print("\n")
 
                 # if step == 200:
+                #     print("200")
                 #     print(traci.vehicle.getPosition("uav0"))
                 #     print(traci.vehicle.getPosition("uav1"))
                 #     print(traci.vehicle.getPosition("uav2"))
@@ -414,7 +528,7 @@ class UAVSimulation:
                         
                         #Discharge rate based on especifications and current velocity
                         discharge_rate = self.calculate_discharge_rate(actual_velocity)
-                        print(discharge_rate)
+                        #print(discharge_rate)
 
                         battery_life_steps[str(uav_id)] += discharge_rate
     
@@ -423,10 +537,11 @@ class UAVSimulation:
                             battery_percentage =  500 / self.battery_life_steps * 100
                             non_blocking_warning("Battery Warning", f"Warning: UAV {uav_id} has {battery_percentage} percentage of battery left.")
                             warning_sent[str(uav_id)] = True
-                            #messagebox.showwarning("Battery Warning", f"Warning: UAV {uav_id} has 5 minutes of battery left.")
-                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (100 / self.simulation_step_length) and not return_sent[str(uav_id)]:
-                             if uav_state[str(uav_id)] == "MISSION":
+                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (200 / self.simulation_step_length) and not return_sent[str(uav_id)]:
+                            if uav_state[str(uav_id)] == "MISSION":
                                 uav_state[str(uav_id)] = "RETURNING"
+                                # Remember where in the original path we left off
+                                departure_time[str(uav_id)] = step * self.simulation_step_length
                                 non_blocking_warning("Battery Warning", f"Warning: Returning to base")
                                 home = self.uav_home[uav_id]
                                 t_now = step * self.simulation_step_length
@@ -456,7 +571,7 @@ class UAVSimulation:
                             non_blocking_warning("Signal Lost", f"UAV {uav_id} lost signal.")
                             #messagebox.showwarning("Signal Lost", f"UAV {uav_id} lost signal.")                       
                             continue
-    
+                   
                     if step in times:
                         index = times.index(step)
                         if index < len(uav_positions) and index < len(uav_yaw_angles):

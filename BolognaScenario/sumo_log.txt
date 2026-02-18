@@ -1,5 +1,5 @@
-***Starting server on port 59223 ***
-Loading net-file from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_buslanes.net.xml' ... done (31ms).
+***Starting server on port 53065 ***
+Loading net-file from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_buslanes.net.xml' ... done (21ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_vtypes.add.xml' ... done (1ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_detectors.add.xml' ... done (0ms).
 Loading additional-files from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_bus_stops.add.xml' ... done (1ms).
@@ -8,21 +8,26 @@ Loading route-files incrementally from '/home/emilio/SUMO-UAV-Py/BolognaScenario
 Loading route-files incrementally from '/home/emilio/SUMO-UAV-Py/BolognaScenario/acosta_busses.rou.xml'
 Loading done.
 Simulation started with time: 0.00.
-Warning: Vehicle 'uav0'; collision with vehicle 'Togliatti_10_152', lane='1b_0', gap=-4.00, time=639.00, stage=remoteControl.
-Warning: Vehicle 'Togliatti_9_169'; collision with vehicle 'Togliatti_10_152', lane='1b_0', gap=-0.72, time=641.00, stage=move.
-Warning: Vehicle 'uav2'; collision with vehicle 'Togliatti_71_231', lane='202_0', gap=-1.19, time=674.00, stage=remoteControl.
-Warning: Vehicle 'Togliatti_71_268'; collision with vehicle 'uav2', lane='202_0', gap=-1.81, time=674.00, stage=remoteControl.
-Warning: Vehicle 'uav0'; collision with vehicle 'Silvani_7_313', lane='203[1]_2', gap=-1.57, time=812.00, stage=remoteControl.
-Warning: Vehicle 'Costa_200_456' performs emergency braking on lane '46_2' with decel=9.00, wished=4.50, severity=1.00, time=1365.00.
-Simulation ended at time: 1536.00.
+Warning: Vehicle 'Costa_200_104' performs emergency braking on lane '116_0' with decel=9.00, wished=4.50, severity=1.00, time=421.00.
+Warning: Vehicle 'Costa_200_104'; collision with vehicle 'uav0', lane='116_0', gap=-2.35, time=421.00, stage=move.
+Warning: Vehicle 'uav2'; collision with vehicle 'Vittorio_Veneto_73_87', lane='202_0', gap=-4.19, time=674.00, stage=remoteControl.
+Warning: Vehicle 'uav2'; collision with vehicle 'Togliatti_71_233', lane='202_1', gap=-0.08, time=675.00, stage=remoteControl.
+Warning: Vehicle 'Togliatti_71_240'; collision with vehicle 'Vittorio_Veneto_73_87', lane='202_0', gap=-1.16, time=676.00, stage=move.
+Warning: Vehicle 'uav0'; collision with vehicle 'Silvani_7_542', lane='203[1]_1', gap=-7.07, time=1321.00, stage=remoteControl.
+Warning: Vehicle 'uav0'; collision with vehicle 'Silvani_3_518', lane='15_0', gap=-6.43, time=1633.00, stage=remoteControl.
+Warning: Vehicle 'Pepoli_3_816'; collision with vehicle 'Silvani_3_518', lane='15_0', gap=-2.60, time=1635.00, stage=move.
+Warning: Vehicle 'uav0'; collision with vehicle 'Pepoli_12_877', lane='15_0', gap=-5.25, time=1681.00, stage=remoteControl.
+Warning: Vehicle 'Pepoli_3_885'; collision with vehicle 'Pepoli_12_877', lane='15_0', gap=-2.16, time=1683.00, stage=move.
+Warning: Vehicle 'Silvani_1_569' performs emergency braking on lane '50_0' with decel=9.00, wished=4.50, severity=1.00, time=1690.00.
+Simulation ended at time: 1963.00.
 Performance:
- Duration: 115.47s
- TraCI-Duration: 24.86s
- Real time factor: 13.3026
- UPS: 7139.971940
+ Duration: 147.54s
+ TraCI-Duration: 34.04s
+ Real time factor: 13.3048
+ UPS: 7298.059522
 Vehicles:
- Inserted: 3587 (Loaded: 3934)
- Running: 627
- Waiting: 162
- Teleports: 0 (Collisions: 5)
- Emergency Braking: 1
+ Inserted: 4574 (Loaded: 4913)
+ Running: 612
+ Waiting: 217
+ Teleports: 0 (Collisions: 9)
+ Emergency Braking: 2

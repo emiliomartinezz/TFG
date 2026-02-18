@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration>
+    <input>
+        <net-file value="madrid.net.xml"/>
+        <route-files value="madrid.rou.xml"/>
+        <additional-files value="madrid.poly.xml, madrid.vtypes.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="3600"/>
+    </time>
+
+    <report>
+        <no-warnings value="true"/>
+        <no-step-log value="true"/>
+    </report>
+
+    <processing>
+    <collision.action value="warn"/>
+    <time-to-teleport value="-1"/>
+    </processing>
+
+</configuration>
