@@ -233,7 +233,7 @@ class UAVSimulation:
         edges = traci.edge.getIDList()
         if not edges:
             raise RuntimeError("No edges in SUMO network")
-
+        size = 10.0
         dummy_edge = edges[20]
 
         if "dummy" not in traci.route.getIDList():
@@ -241,6 +241,13 @@ class UAVSimulation:
 
         for uav_id in range(self.num_UAVs):
             veh_id = f"uav{uav_id}"
+            home = self.uav_home[uav_id]
+            shape = [
+                (home[0]-size, home[1]-size),
+                (home[0]+size, home[1]-size),
+                (home[0]+size, home[1]+size),
+                (home[0]-size, home[1]+size)
+            ]
 
             traci.vehicle.add(
                 vehID=veh_id,
@@ -250,6 +257,15 @@ class UAVSimulation:
                 departPos="free",
                 departSpeed=0,
             )
+
+            traci.polygon.add(
+                polygonID=f"base_{uav_id}",
+                shape=shape,
+                color=(0, 0, 255, 255),
+                fill=True,
+                layer=10
+            )
+
 
 
             traci.vehicle.setSpeed(veh_id, 0)
@@ -312,8 +328,6 @@ class UAVSimulation:
                     if uav_state[str(uav_id)] == "CHARGING":
 
                         charging_counter[str(uav_id)] += 1
-
-                        # Keep vehicle at home position so SUMO doesn't lose track of it
                         home = self.uav_home[uav_id]
                         veh_id = f"uav{uav_id}"
                         if veh_id in traci.vehicle.getIDList():
@@ -366,8 +380,6 @@ class UAVSimulation:
                             curr_pos = np.array(curr_pos_xy)
                             home_xy = np.array([home[0], home[1]])
                             distance = np.linalg.norm(curr_pos - home_xy)
-                            #print(f"UAV {uav_id} returning to base. Current position: {curr_pos}, Home position: {home}")
-                            #print(f"Distance to home: {distance}")
                             if distance < 0.5:
                                 uav_state[str(uav_id)] = "CHARGING"
                                 charging_counter[str(uav_id)] = 0
@@ -375,12 +387,6 @@ class UAVSimulation:
 
                     veh_id = f"uav{uav_id}"
                     
-                    # Check if step is within bounds of available positions
-                    # if step >= len(self.uav_positions_list[uav_id]):
-                    #     print(f"[WARN] {veh_id} no tiene posición para step {step}, se omite moveToXY", flush=True)
-                    #     continue
-                    
-                    #init_pos = self.uav_positions_list[uav_id][step]
                     times = self.time_list[uav_id]
                     traj = self.uav_positions_list[uav_id]
 
@@ -516,28 +522,43 @@ class UAVSimulation:
                         polygon_exists[uav_id] = True
                         poi_exists[uav_id] = True
                     
-                    if self.battery_mode and step < len(times) and uav_positions[step][2] > 0:
+                    # Skip battery logic if UAV is charging
+                    if uav_state[str(uav_id)] == "CHARGING":
+                        continue
 
-                        if step > 0:
-                            pos_now = np.array(uav_positions[step])
-                            pos_prev = np.array(uav_positions[step-1])
-                            distance= np.linalg.norm(pos_now - pos_prev)
-                            actual_velocity= distance/ self.simulation_step_length
+                    # Resolve the correct index for this step
+                    if step in times:
+                        step_idx = times.index(step)
+                    else:
+                        step_idx = None
+
+                    if self.battery_mode and step_idx is not None and uav_positions[step_idx][2] > 0:
+
+                        if step_idx > 0:
+                            pos_now = np.array(uav_positions[step_idx])
+                            pos_prev = np.array(uav_positions[step_idx - 1])
+                            distance = np.linalg.norm(pos_now - pos_prev)
+                            distance_home = np.linalg.norm(pos_now - np.array(self.uav_home[uav_id]))
+                            time_home = distance_home / self.v_cruise if self.v_cruise > 0 else 0
+                            discharge_rate_home = self.cruise_rate * time_home
+                            actual_velocity = distance / self.simulation_step_length
                         else:
                             actual_velocity = 0
+                            discharge_rate_home = 0
                         
                         #Discharge rate based on especifications and current velocity
                         discharge_rate = self.calculate_discharge_rate(actual_velocity)
                         #print(discharge_rate)
 
                         battery_life_steps[str(uav_id)] += discharge_rate
+                        print(discharge_rate_home)
+
     
                         if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (500 / self.simulation_step_length) and not warning_sent[str(uav_id)]:
-                            #print(f" \n Warning: Uav: {uav_id} has 5 minutes of battery left \n ")
                             battery_percentage =  500 / self.battery_life_steps * 100
                             non_blocking_warning("Battery Warning", f"Warning: UAV {uav_id} has {battery_percentage} percentage of battery left.")
                             warning_sent[str(uav_id)] = True
-                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (200 / self.simulation_step_length) and not return_sent[str(uav_id)]:
+                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (discharge_rate_home + 50 / self.simulation_step_length) and not return_sent[str(uav_id)]:
                             if uav_state[str(uav_id)] == "MISSION":
                                 uav_state[str(uav_id)] = "RETURNING"
                                 # Remember where in the original path we left off
@@ -566,10 +587,8 @@ class UAVSimulation:
                                 uavs_activos.remove(uav_id)
                             if not uavs_activos:
                                     self.stop_flag = True
-                            #print(f" \n Uav: {uav_id} lost signal \n")
                             stop_sent[str(uav_id)] = True
-                            non_blocking_warning("Signal Lost", f"UAV {uav_id} lost signal.")
-                            #messagebox.showwarning("Signal Lost", f"UAV {uav_id} lost signal.")                       
+                            non_blocking_warning("Signal Lost", f"UAV {uav_id} lost signal.")                      
                             continue
                    
                     if step in times:
