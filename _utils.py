@@ -128,7 +128,7 @@ class Calculations:
     def add_fov_polygon(self,uav_position, fov_size, yaw_angle, polygon_id, border_polygon_id):
         points = self.calculate_fov_corners(uav_position, fov_size, yaw_angle)
         border_points = points + [points[0]]
-        traci.polygon.add(polygon_id, points, (160, 160, 255, 128), layer=-1, fill=True)  
+        traci.polygon.add(polygon_id, points, (160, 160, 255, 128), layer=5, fill=True)  
         traci.polygon.add(border_polygon_id, border_points, (200, 200, 255, 255), layer=0, fill=False, lineWidth=1)  
           
     @timing_decorator  

@@ -13,7 +13,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk, Toplevel, Label
 from _utils import Calculations
 import copy
-
+import subprocess
 import time 
 
 
@@ -123,7 +123,7 @@ class UAVSimulation:
         self.battery_mode = config.get('Battery Mode', False)
         self.num_UAVs = config['Number of UAVs']
         self.UavMode = config.get('Uav Mode', 'Hovering')
-        
+        self.omnet_mode = config.get('OMNeT Mode', False)
         self.mode = config.get('Input Mode', 'Offline')
         self.movement = config.get('Movement', 'Continuous')
         
@@ -205,23 +205,46 @@ class UAVSimulation:
 
         
     def start_sumo(self):         
-        sumo_cmd = ['sumo-gui' if self.GuiOption else 'sumo', "-c", 
-                    self.sumocfg_file, 
-                    "--step-length", str(self.simulation_step_length),
-                    "--delay", str(self.delay_option),
-                    "--start", "true",
-                    "--quit-on-end", "True"]
-                    #"--mesosim", "True"]
-                    #, "--edgedata-output", 'Outputs/edgeData.xml',
-                    #"--fcd-output",'Outputs/fcd.xml']
+        
+        if self.omnet_mode:
+        # ---- MULTI-CLIENT MODE: SUMO started externally, connect as client 0 ----
+            sumo_binary = 'sumo-gui' if self.GuiOption else 'sumo'
+            sumo_cmd = [
+                sumo_binary, "-c", self.sumocfg_file,
+                "--step-length", str(self.simulation_step_length),
+                "--delay", str(self.delay_option),
+                "--start", "true",
+                "--quit-on-end", "True",
+                "--num-clients", "2",          # Only added here, NOT in .sumocfg
+                "--remote-port", "9999"
+            ]
 
-        traci.start(sumo_cmd)
-        #if self.GuiOption: // Potential Update
-            #traci.gui.setZoom("View #0", 50)
-            #traci.gui.setOffset("View #0", 1145, 150)
-            #traci.gui.setZoom("View #0", 600) 
-            #traci.gui.setOffset("View #0", 1900, 1700)
-        print("TraCI is started")
+            self.sumo_process = subprocess.Popen(sumo_cmd)
+            max_retries = 30
+            for i in range(max_retries):
+                try:
+                    traci.init(port=9999)
+                    break
+                except ConnectionRefusedError:
+                    print(f"Waiting for SUMO to start... ({i+1}/{max_retries})")
+                    time.sleep(1)
+            else:
+                raise RuntimeError("Could not connect to SUMO on port 9999")
+
+            traci.setOrder(0)  # Python goes first each step
+            print("TraCI connected (multi-client mode, order=0)")
+        else:
+            # ---- STANDALONE MODE: Python launches SUMO (your original code) ----
+            sumo_cmd = [
+                'sumo-gui' if self.GuiOption else 'sumo', "-c",
+                self.sumocfg_file,
+                "--step-length", str(self.simulation_step_length),
+                "--delay", str(self.delay_option),
+                "--start", "true",
+                "--quit-on-end", "True"
+            ]
+            traci.start(sumo_cmd)
+            print("TraCI is started (standalone mode)")
 
         self.create_uav_vehicles()
         traci.simulationStep()
@@ -416,10 +439,10 @@ class UAVSimulation:
                     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
 
 
-                print(traci.vehicle.getPosition("uav0"))
-                print(traci.vehicle.getPosition("uav1"))
-                print(traci.vehicle.getPosition("uav2"))
-                print("\n")
+                # print(traci.vehicle.getPosition("uav0"))
+                # print(traci.vehicle.getPosition("uav1"))
+                # print(traci.vehicle.getPosition("uav2"))
+                # print("\n")
                 if step == 650:
                     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
                 # if step == 1700:
@@ -551,7 +574,10 @@ class UAVSimulation:
                         #print(discharge_rate)
 
                         battery_life_steps[str(uav_id)] += discharge_rate
-                        print(discharge_rate_home)
+                        print(f"Discharge rate for UAV {uav_id}: {discharge_rate:.3f}, Home discharge rate: {discharge_rate_home}")
+                        print(f"Battery life steps for UAV {uav_id}: {battery_life_steps[str(uav_id)]} / {self.battery_life_steps}")
+                        if uav_id == (self.num_UAVs - 1):  
+                            print ("\n")
 
     
                         if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (500 / self.simulation_step_length) and not warning_sent[str(uav_id)]:
@@ -629,7 +655,6 @@ class UAVSimulation:
                                      
                                 for vehicle_id, position, speed in zip(vehicles_in_view, positions_in_view, speeds_in_view):
                                     writer.writerow([step, step * self.simulation_step_length, uav_id, uav_position[0], uav_position[1], uav_position[2], yaw_angle, vehicle_id, position[0], position[1], speed])
-
             if self.local_gui:
                 self.stop_flag = True
                 user_input_thread.join()
@@ -637,6 +662,8 @@ class UAVSimulation:
             if self.server_option:
                 self.stop_flag = True
                 server_thread.join()
+            
+            
             
 
         
