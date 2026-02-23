@@ -1,0 +1,3 @@
+[submodule "uavTFG"]
+	path = uavTFG
+	url = https://github.com/emiliomartinezz/uavTFG.git
