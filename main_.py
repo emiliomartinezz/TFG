@@ -15,6 +15,7 @@ from _utils import Calculations
 import copy
 import subprocess
 import time 
+from coverage_optimizer import Optimizer
 
 
 def non_blocking_warning(title, message):
@@ -112,7 +113,8 @@ class UAVSimulation:
     def read_config(self, config_file):
         try:
             with open(config_file, 'r') as file:
-                config = json.load(file)
+                self.config = json.load(file)
+                config = self.config
         except FileNotFoundError:
             raise FileNotFoundError(f"Configuration file {config_file} not found.")
         except json.JSONDecodeError:
@@ -126,7 +128,7 @@ class UAVSimulation:
         self.omnet_mode = config.get('OMNeT Mode', False)
         self.mode = config.get('Input Mode', 'Offline')
         self.movement = config.get('Movement', 'Continuous')
-        
+        self.otimization_mode = config.get("Optimization Mode", False)
         self.server_option = config.get('Remote Server', False)
         self.local_gui = config.get('Local GUI', False)
         
@@ -205,9 +207,8 @@ class UAVSimulation:
 
         
     def start_sumo(self):         
-        
         if self.omnet_mode:
-        # ---- MULTI-CLIENT MODE: SUMO started externally, connect as client 0 ----
+            # Launch SUMO with the real simulation
             sumo_binary = 'sumo-gui' if self.GuiOption else 'sumo'
             sumo_cmd = [
                 sumo_binary, "-c", self.sumocfg_file,
@@ -215,26 +216,36 @@ class UAVSimulation:
                 "--delay", str(self.delay_option),
                 "--start", "true",
                 "--quit-on-end", "True",
-                "--num-clients", "2",          # Only added here, NOT in .sumocfg
+                "--num-clients", "2",
                 "--remote-port", "9999"
             ]
 
             self.sumo_process = subprocess.Popen(sumo_cmd)
+            print("SUMO launched, waiting for 2 clients...")
+            print(">>> NOW LAUNCH OMNET++ <<<")
+            input("Press ENTER after you have started OMNeT++ simulation...")
+        
+            # Now Python connects as the second client
             max_retries = 30
             for i in range(max_retries):
                 try:
+                    print(f">>> DEBUG 4: Trying traci.init attempt {i+1}...", flush=True)
                     traci.init(port=9999)
                     break
                 except ConnectionRefusedError:
-                    print(f"Waiting for SUMO to start... ({i+1}/{max_retries})")
+                    print(f"Connecting to SUMO... ({i+1}/{max_retries})")
                     time.sleep(1)
             else:
                 raise RuntimeError("Could not connect to SUMO on port 9999")
 
             traci.setOrder(0)  # Python goes first each step
-            print("TraCI connected (multi-client mode, order=0)")
+            print("Both clients connected! Simulation starting...")
+        
+            self.create_uav_vehicles()
+            # traci.simulationStep()
+            print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
+        
         else:
-            # ---- STANDALONE MODE: Python launches SUMO (your original code) ----
             sumo_cmd = [
                 'sumo-gui' if self.GuiOption else 'sumo', "-c",
                 self.sumocfg_file,
@@ -245,11 +256,9 @@ class UAVSimulation:
             ]
             traci.start(sumo_cmd)
             print("TraCI is started (standalone mode)")
-
-        self.create_uav_vehicles()
-        traci.simulationStep()
-        print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
-        
+            self.create_uav_vehicles()
+            traci.simulationStep()
+            print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
 
 
     def create_uav_vehicles(self):
@@ -344,9 +353,9 @@ class UAVSimulation:
                 server_thread.start()
                     
             while step < self.total_simulation_steps and not self.stop_flag:
-                
                 traci.simulationStep()
                 step += 1
+
                 for uav_id in range(self.num_UAVs):
                     if uav_state[str(uav_id)] == "CHARGING":
 
@@ -448,12 +457,12 @@ class UAVSimulation:
                 # if step == 1700:
                 #     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
 
-                # if step == 5:
+                # if step == 50:
                 #     print(traci.vehicle.getPosition("uav0"))
                 #     print(traci.vehicle.getPosition("uav1"))
                 #     print(traci.vehicle.getPosition("uav2"))
                 #     print("\n")
-                #     #print("Vehicles after 5 step:", traci.vehicle.getIDList(), flush=True)
+                #     print("Vehicles after 5 step:", traci.vehicle.getIDList(), flush=True)
 
                 # if step == 50:
                 #     print(traci.vehicle.getPosition("uav0"))
@@ -879,10 +888,17 @@ class UAVSimulation:
         
 def start_simulation_thread(sim, tk_root):
     try:
+        print(">>> THREAD: calling start_sumo...", flush=True)
         sim.start_sumo()
+        print(">>> THREAD: start_sumo finished, calling run_simulation...", flush=True)
         sim.run_simulation()
+        print(">>> THREAD: run_simulation finished", flush=True)
     except traci.exceptions.FatalTraCIError:
         print("Simulation terminated due to SUMO closing.")
+    except Exception as e:
+        print(f">>> THREAD: UNEXPECTED ERROR: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
     finally:
         try:
             traci.close()
@@ -898,6 +914,12 @@ if __name__ == "__main__":
 
     # Initialize the simulation
     sim = UAVSimulation('config.json')
+
+    if sim.otimization_mode:   
+        print("Optimization mode enabled. Running optimizer...")
+        optimizer = Optimizer(sim.config)
+        optimizer.run()
+        sim = UAVSimulation('config.json')
 
     # Start the simulation in a separate thread so it doesn't block the Tkinter event loop
     simulation_thread = threading.Thread(target=start_simulation_thread, args=(sim, root))
