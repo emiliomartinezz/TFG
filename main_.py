@@ -108,7 +108,7 @@ class UAVSimulation:
         self.stop_flag = False
         self.calc = Calculations(self.uav_speed, self.simulation_step_length, self.yaw_speed)
         self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
-        self.uav_home = {uav_id: self.uav_positions_list[uav_id][0] for uav_id in range(self.num_UAVs)}
+        self.uav_home = {uav_id: self.uav_positions_list[uav_id][0] for uav_id in range(self.total_uavs)}
 
     def read_config(self, config_file):
         try:
@@ -131,7 +131,18 @@ class UAVSimulation:
         self.otimization_mode = config.get("Optimization Mode", False)
         self.server_option = config.get('Remote Server', False)
         self.local_gui = config.get('Local GUI', False)
-        
+        self.relay_mode = config.get('Relay Mode', False)
+        self.uav_data = config['uav_data']
+        # Keep a copy of the original data for reference
+        self.original_uav_data = copy.deepcopy(self.uav_data) 
+
+        if self.relay_mode:
+            self.total_uavs = 2*self.num_UAVs 
+            for i in range(self.num_UAVs):
+                self.uav_data[str(i + self.num_UAVs)] = copy.deepcopy(self.uav_data[str(i)])
+                self.original_uav_data[str(i + self.num_UAVs)] = copy.deepcopy(self.original_uav_data[str(i)])
+        else:
+            self.total_uavs = self.num_UAVs
         self.delay_option = config.get('Delay', 0 )
         
         self.simulation_step_length = float(config['Step length (s)'])
@@ -176,9 +187,6 @@ class UAVSimulation:
         if not os.path.exists(self.network_file):
             raise FileNotFoundError(f"SUMO configuration file {self.network_file} not found.")
     
-        self.uav_data = config['uav_data']
-        # Keep a copy of the original data for reference
-        self.original_uav_data = copy.deepcopy(self.uav_data)  
         
         if self.server_option:
             self.uav_data = {str(i): [[0] * 5] for i in range(self.num_UAVs)}
@@ -204,7 +212,7 @@ class UAVSimulation:
             # Usamos v_max_ref para asegurar que el max_rate se aplique correctamente
             v_norm = (velocity - self.v_cruise) / (self.v_max - self.v_cruise)
             return self.cruise_rate + (self.max_rate - self.cruise_rate) * (v_norm ** 3)
-
+        
         
     def start_sumo(self):         
         if self.omnet_mode:
@@ -271,7 +279,7 @@ class UAVSimulation:
         if "dummy" not in traci.route.getIDList():
             traci.route.add("dummy", [dummy_edge])
 
-        for uav_id in range(self.num_UAVs):
+        for uav_id in range(self.total_uavs):
             veh_id = f"uav{uav_id}"
             home = self.uav_home[uav_id]
             shape = [
@@ -308,10 +316,11 @@ class UAVSimulation:
             
             
     def run_simulation(self, output_file='Outputs/uav_output.csv'):
-        
-        polygon_ids = [f"fov_polygon_{i}" for i in range(self.num_UAVs)]
-        border_polygon_ids = [f"fov_border_polygon_{i}" for i in range(self.num_UAVs)]
-        poi_ids = [f"uav_poi_{i}" for i in range(self.num_UAVs)]
+        N = self.num_UAVs
+        T = self.total_uavs
+        polygon_ids = [f"fov_polygon_{i}" for i in range(T)]
+        border_polygon_ids = [f"fov_border_polygon_{i}" for i in range(T)]
+        poi_ids = [f"uav_poi_{i}" for i in range(T)]
         icon_paths = {'Manual': "images/manualLQ.png",
                       'Mini 3 pro': "images/mini3proLQ.png",
                       'Mavic 2e': "images/mavic2e.png"}
@@ -319,24 +328,34 @@ class UAVSimulation:
         icon_path = icon_paths.get(self.UavModel, "images/manualLQ.png")
         self.battery_life_steps = int(self.battery_life)
         # Initialize battery_life_steps based on the first time value in uav_data
-        battery_life_steps = {str(uav_id): max(0, self.uav_data[str(uav_id)][0][0]) for uav_id in range(self.num_UAVs)}
-        polygon_exists = {i: False for i in range(self.num_UAVs)}
-        poi_exists = {i: False for i in range(self.num_UAVs)}
+        battery_life_steps = {str(uav_id): max(0, self.uav_data[str(uav_id)][0][0]) for uav_id in range(T)}
+        polygon_exists = {i: False for i in range(T)}
+        poi_exists = {i: False for i in range(T)}
         #Flag used to avoid multiple warnings for the same UAV when it reaches the battery warning threshold
-        warning_sent = {str(i): False for i in range(self.num_UAVs)}
+        warning_sent = {str(i): False for i in range(T)}
         #Flag used to avoid multiple warnings for the same UAV when it returns to the base
-        return_sent = {str(i): False for i in range(self.num_UAVs)}
+        return_sent = {str(i): False for i in range(T)}
         #Flag used to avoid multiple warnings for the same UAV when it reaches the battery life threshold and is removed from the simulation
-        stop_sent = {str(i): False for i in range(self.num_UAVs)}
-        #List to keep track of active UAVs, used to stop the simulation when all UAVs are removed due to battery life end
-        uavs_activos = [i for i in range(self.num_UAVs)]
-        #State of the UAV, used to determine if it is on a mission,returning to base or charging
-        uav_state = {str(i): "MISSION" for i in range(self.num_UAVs)}
+        stop_sent = {str(i): False for i in range(T)}
         charging_time_steps = int(200 / self.simulation_step_length)
-        charging_counter = {str(i): 0 for i in range(self.num_UAVs)}
+        charging_counter = {str(i): 0 for i in range(T)}
         # Track the original-path time at which the UAV left its mission
-        departure_time = {str(i): 0 for i in range(self.num_UAVs)}
+        departure_time = {str(i): 0 for i in range(T)}
+        #State of the UAV, used to determine if it is on a mission,returning to base or charging
+        uav_state = {}
+        for i in range(T):
+            if self.relay_mode and i >= N:
+                uav_state[str(i)] = "STANDBY"
+            else:
+                uav_state[str(i)] = "MISSION"
+    
+        uavs_activos = [i for i in range(N)]
 
+        def get_partner(uav_id):
+            if uav_id < N:
+                return uav_id + N
+            else:
+                return uav_id - N
         
         with open(output_file, mode='w', newline='') as file:
             writer = csv.writer(file, delimiter=',')
@@ -356,7 +375,20 @@ class UAVSimulation:
                 traci.simulationStep()
                 step += 1
 
-                for uav_id in range(self.num_UAVs):
+                for uav_id in range(T):
+                    if uav_state[str(uav_id)] == "STANDBY":
+                        veh_id = f"uav{uav_id}"
+                        home = self.uav_home[uav_id]
+                        if veh_id in traci.vehicle.getIDList():
+                            traci.vehicle.moveToXY(
+                                vehID=veh_id, 
+                                edgeID="", 
+                                laneIndex=-1,
+                                x=home[0], 
+                                y=home[1], 
+                                keepRoute=2
+                            )
+                        continue 
                     if uav_state[str(uav_id)] == "CHARGING":
 
                         charging_counter[str(uav_id)] += 1
@@ -377,34 +409,41 @@ class UAVSimulation:
                             warning_sent[str(uav_id)] = False
                             return_sent[str(uav_id)] = False
                             stop_sent[str(uav_id)] = False
-                            non_blocking_warning("Charging Complete", f"UAV {uav_id} has finished charging and is back on a mission.")
-                            # Resume original path from where the UAV left off, time-shifted to now
-                            original_data = copy.deepcopy(self.original_uav_data[str(uav_id)])
-                            dep_t = departure_time[str(uav_id)]
-                            current_time = step * self.simulation_step_length
-                            # Keep only waypoints at or after the departure time
-                            remaining = [p for p in original_data if p[0] >= dep_t]
-                            if not remaining:
-                                remaining = [original_data[-1]]
-                            # Shift timestamps so the first remaining waypoint starts at current_time
-                            time_offset = current_time - remaining[0][0]
-                            for point in remaining:
-                                point[0] += time_offset
-                            # Remove waypoints beyond simulation end
-                            total_time = self.total_simulation_steps * self.simulation_step_length
-                            remaining = [p for p in remaining if p[0] <= total_time]
-                            # Ensure last waypoint reaches simulation end
-                            if remaining and remaining[-1][0] < total_time:
-                                last = list(remaining[-1])
-                                last[0] = total_time
-                                remaining.append(last)
-                            # Prepend home position at t=0 so path covers all steps
-                            home_pos = self.uav_home[uav_id]
-                            first_yaw = remaining[0][4] if remaining else 0
-                            remaining.insert(0, [0, home_pos[0], home_pos[1], home_pos[2], first_yaw])
-                            self.uav_data[str(uav_id)] = remaining
-                            self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
-                            uav_state[str(uav_id)] = "MISSION"
+                            if self.relay_mode:
+                                uav_state[str(uav_id)] = "STANDBY"
+                                non_blocking_warning("Carga Completa",
+                                    f"UAV {uav_id} cargado. En standby.")
+                                continue
+                            else:
+                                non_blocking_warning("Charging Complete", f"UAV {uav_id} has finished charging and is back on a mission.")
+                                # Resume original path from where the UAV left off, time-shifted to now
+                                original_data = copy.deepcopy(self.original_uav_data[str(uav_id)])
+                                dep_t = departure_time[str(uav_id)]
+                                current_time = step * self.simulation_step_length
+                                # Keep only waypoints at or after the departure time
+                                remaining = [p for p in original_data if p[0] >= dep_t]
+                                if not remaining:
+                                    remaining = [original_data[-1]]
+                                # Shift timestamps so the first remaining waypoint starts at current_time
+                                time_offset = current_time - remaining[0][0]
+                                for point in remaining:
+                                    point[0] += time_offset
+                                # Remove waypoints beyond simulation end
+                                total_time = self.total_simulation_steps * self.simulation_step_length
+                                remaining = [p for p in remaining if p[0] <= total_time]
+                                # Ensure last waypoint reaches simulation end
+                                if remaining and remaining[-1][0] < total_time:
+                                    last = list(remaining[-1])
+                                    last[0] = total_time
+                                    remaining.append(last)
+                                # Prepend home position at t=0 so path covers all steps
+                                home_pos = self.uav_home[uav_id]
+                                first_yaw = remaining[0][4] if remaining else 0
+                                remaining.insert(0, [0, home_pos[0], home_pos[1], home_pos[2], first_yaw])
+                                self.uav_data[str(uav_id)] = remaining
+                                self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
+                                uav_state[str(uav_id)] = "MISSION"
+                        continue
             
                     if uav_state[str(uav_id)] == "RETURNING":
                             home = self.uav_home[uav_id]
@@ -416,6 +455,7 @@ class UAVSimulation:
                                 uav_state[str(uav_id)] = "CHARGING"
                                 charging_counter[str(uav_id)] = 0
                                 non_blocking_warning("Charging", f"UAV {uav_id} charging...")
+                            pass
 
                     veh_id = f"uav{uav_id}"
                     
@@ -451,6 +491,8 @@ class UAVSimulation:
                 # print(traci.vehicle.getPosition("uav0"))
                 # print(traci.vehicle.getPosition("uav1"))
                 # print(traci.vehicle.getPosition("uav2"))
+                # print(traci.vehicle.getPosition("uav3"))
+
                 # print("\n")
                 if step == 650:
                     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
@@ -545,14 +587,20 @@ class UAVSimulation:
     
                 for uav_id, (uav_positions, times, uav_yaw_angles) in enumerate(zip(self.uav_positions_list, self.time_list, self.uav_yaw_angles_list)):
                     
-                    if step == 1 and self.GuiOption:
-                        uav_position = uav_positions[0]
-                        yaw_angle = uav_yaw_angles[0]
-                        field_of_view_size = self.calc.fov_calculation(self.fov_degrees, uav_position[2])
-                        self.calc.add_fov_polygon(uav_position, field_of_view_size, yaw_angle, polygon_ids[uav_id], border_polygon_ids[uav_id])
-                        self.calc.add_poi(poi_ids[uav_id], uav_position, yaw_angle, icon_path)
-                        polygon_exists[uav_id] = True
-                        poi_exists[uav_id] = True
+                    if uav_state[str(uav_id)] == "STANDBY":
+                        continue
+
+                    if self.GuiOption and uav_state[str(uav_id)] == "MISSION" and not polygon_exists[uav_id]:
+                        if step in times:
+                            idx = times.index(step)
+                            uav_position = uav_positions[idx]
+                            yaw_angle = uav_yaw_angles[idx]
+                            if uav_position[2] > 0:  # Solo si está en el aire
+                                field_of_view_size = self.calc.fov_calculation(self.fov_degrees, uav_position[2])
+                                self.calc.add_fov_polygon(uav_position, field_of_view_size, yaw_angle, polygon_ids[uav_id], border_polygon_ids[uav_id])
+                                self.calc.add_poi(poi_ids[uav_id], uav_position, yaw_angle, icon_path)
+                                polygon_exists[uav_id] = True
+                                poi_exists[uav_id] = True
                     
                     # Skip battery logic if UAV is charging
                     if uav_state[str(uav_id)] == "CHARGING":
@@ -609,6 +657,45 @@ class UAVSimulation:
                                 ]
                                 self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
                                 return_sent[str(uav_id)] = True
+                                if self.relay_mode:
+                                    partner_id = get_partner(uav_id)
+                                    if uav_state[str(partner_id)] == "STANDBY":
+                                        uav_state[str(partner_id)] = "MISSION"
+                                        battery_life_steps[str(partner_id)] = 0
+                                        warning_sent[str(partner_id)] = False
+                                        return_sent[str(partner_id)] = False
+                                        stop_sent[str(partner_id)] = False
+                                        route_slot = partner_id % N
+                                        original_data = copy.deepcopy(self.original_uav_data[str(route_slot)])
+                                      # 1) waypoint exacto en t_now (posición “ideal” de la ruta)
+                                        
+                                        curr_pos = uav_positions[step]
+                                        curr_angle = uav_yaw_angles[step]
+
+                                        # 2) futuro: mantener waypoints con tiempo > t_now
+                                        future = [p for p in original_data if p[0] > t_now]
+
+                                        partner_home = self.uav_home[partner_id]
+
+                                        # 3) Construir nueva ruta del partner:
+                                        #    - de 0 a t_now: hovering en home
+                                        #    - en t_now: sigue estando en home (para que no teletransporte)
+                                        #    - en t_now + dt: ir hacia wp_now (sale inmediatamente)
+                                        dt = self.simulation_step_length
+
+                                        new_path = [
+                                            [0, partner_home[0], partner_home[1], partner_home[2], 0],
+                                            [t_now, partner_home[0], partner_home[1], partner_home[2], 0],
+                                            [t_now + dt, curr_pos[0], curr_pos[1], curr_pos[2], curr_angle]
+                                        ]
+
+                                        # 4) Añadir el resto de waypoints futuros (para continuar la misión)
+                                        new_path.extend(future)
+
+                                        self.uav_data[str(partner_id)] = new_path
+                                        self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
+                                        non_blocking_warning("Relevo",
+                                            f"UAV {partner_id} releva a UAV {uav_id}")
 
                         if battery_life_steps[str(uav_id)] >= self.battery_life_steps and not stop_sent[str(uav_id)]:
                             if polygon_exists[uav_id]:
@@ -617,15 +704,24 @@ class UAVSimulation:
                             if poi_exists[uav_id]: 
                                 self.calc.remove_poi(poi_ids[uav_id])
                                 poi_exists[uav_id] = False
-                            if veh_id in traci.vehicle.getIDList():
-                                traci.vehicle.remove(f"uav{uav_id}")
-                                uavs_activos.remove(uav_id)
-                            if not uavs_activos:
+                            if self.relay_mode:
+                                stop_sent[str(uav_id)] = True
+                                non_blocking_warning("Sin batería", f"UAV {uav_id} sin batería.")
+                                any_active = any(
+                                    uav_state[str(uid)] in ("MISSION", "RETURNING")
+                                    for uid in range(T)
+                                )
+                                if not any_active:
                                     self.stop_flag = True
-                            stop_sent[str(uav_id)] = True
-                            non_blocking_warning("Signal Lost", f"UAV {uav_id} lost signal.")                      
-                            continue
-                   
+                            else:
+                                if veh_id in traci.vehicle.getIDList():
+                                    traci.vehicle.remove(f"uav{uav_id}")
+                                    uavs_activos.remove(uav_id)
+                                if not uavs_activos:
+                                    self.stop_flag = True
+                                stop_sent[str(uav_id)] = True
+                                non_blocking_warning("Signal Lost", f"UAV {uav_id} lost signal.")
+                            continue                  
                     if step in times:
                         index = times.index(step)
                         if index < len(uav_positions) and index < len(uav_yaw_angles):
@@ -777,7 +873,7 @@ class UAVSimulation:
         time_list = []
         uav_yaw_angles_list = []
     
-        for uav_id in range(self.num_UAVs):
+        for uav_id in range(self.total_uavs):
             data_points = self.uav_data[str(uav_id)]
             
             positions = [[point[1], point[2], point[3]] for point in data_points]
@@ -918,8 +1014,8 @@ if __name__ == "__main__":
     if sim.otimization_mode:   
         print("Optimization mode enabled. Running optimizer...")
         optimizer = Optimizer(sim.config)
-        optimizer.run()
-        sim = UAVSimulation('config.json')
+        optimizer.run(config_path="config.json", output_path="config_optimized.json")
+        sim = UAVSimulation('config_optimized.json')
 
     # Start the simulation in a separate thread so it doesn't block the Tkinter event loop
     simulation_thread = threading.Thread(target=start_simulation_thread, args=(sim, root))

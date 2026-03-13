@@ -1,6 +1,7 @@
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
 
 
 class Optimizer:
@@ -53,7 +54,7 @@ class Optimizer:
 
     def _compute_coverage(self, snr_grid):
         covered = snr_grid > self.coverage_threshold_db
-        #print(f"Cells above threshold: {np.sum(covered)} / {covered.size}")
+        # print(f"Cells above threshold: {np.sum(covered)} / {covered.size}")
         return np.sum(covered) / covered.size
 
     def _compute_objective(self, snr_grid):
@@ -73,7 +74,7 @@ class Optimizer:
         # Usamos un factor pequeño para que no domine sobre la cobertura
         return coverage + mean_snr * 1e-4
 
-    def run(self):
+    def run(self, config_path="config.json", output_path="config_optimized.json"):
         print("Running static greedy optimization...")
         print(f"Grid size: {self.xx.shape}, Total cells: {self.xx.size}")
         print(f"Coverage threshold: {self.coverage_threshold_db} dB")
@@ -114,9 +115,9 @@ class Optimizer:
                 f"Placed UAV {drone_idx} at {best_position} "
                 f"→ coverage={coverage:.4f}, mean_SNR={mean_snr:.2f} dB"
             )
-
+        self.plot_snr_heatmap(snr_current, optimal_positions)
         # --- Escribir resultado en config.json ---
-        with open("config.json", "r") as f:
+        with open(config_path, "r") as f:
             config = json.load(f)
 
         total_time = config["Total time (s)"]
@@ -132,11 +133,100 @@ class Optimizer:
         config["uav_data"] = new_uav_data
         config["Number of UAVs"] = len(optimal_positions)
 
-        with open("config.json", "w") as f:
+        with open(output_path, "w") as f:
             json.dump(config, f, indent=4)
 
         print("\nConfig updated with optimized UAV positions.")
         return optimal_positions
+    
+    def plot_snr_heatmap(self, snr_grid, uav_positions):
+        
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # --- Límites de color centrados en el umbral ---
+        snr_min = np.min(snr_grid)
+        snr_max = np.max(snr_grid)
+        threshold = self.coverage_threshold_db
+
+        # TwoSlopeNorm centra el colormap en el umbral de cobertura
+        # Rojo = por debajo del umbral, Azul/Verde = por encima
+        if snr_min < threshold < snr_max:
+            norm = TwoSlopeNorm(vmin=snr_min, vcenter=threshold, vmax=snr_max)
+        else:
+            norm = None
+
+        # --- Mapa de calor ---
+        im = ax.pcolormesh(
+            self.xx, self.yy, snr_grid,
+            cmap='RdYlGn',
+            norm=norm,
+            shading='nearest'
+        )
+
+        cbar = fig.colorbar(im, ax=ax, label='SNR (dB)', pad=0.02)
+        # Marcar el umbral en la barra de color
+        cbar.ax.axhline(y=threshold, color='black', linewidth=2, linestyle='--')
+        cbar.ax.text(
+            1.3, threshold, f'  Umbral\n  {threshold} dB',
+            transform=cbar.ax.get_yaxis_transform(),
+            va='center', fontsize=9, fontweight='bold'
+        )
+
+        # --- Contorno en el umbral de cobertura ---
+        ax.contour(
+            self.xx, self.yy, snr_grid,
+            levels=[threshold],
+            colors='black',
+            linewidths=1.5,
+            linestyles='dashed'
+        )
+
+        # --- Posiciones de los UAVs ---
+        for i, (x, y, h) in enumerate(uav_positions):
+            ax.plot(x, y, 'k^', markersize=14, markeredgewidth=2,
+                    markerfacecolor='white', zorder=5)
+            ax.annotate(
+                f'UAV {i}\n({x:.0f}, {y:.0f})\nh={h}m',
+                xy=(x, y),
+                xytext=(12, 12),
+                textcoords='offset points',
+                fontsize=8,
+                fontweight='bold',
+                color='black',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                          edgecolor='gray', alpha=0.85),
+                zorder=6
+            )
+
+        # --- Info de cobertura ---
+        coverage = self._compute_coverage(snr_grid)
+        mean_snr = np.mean(snr_grid)
+        min_snr = np.min(snr_grid)
+
+        info_text = (
+            f"Cobertura: {coverage * 100:.1f}%\n"
+            f"SNR media: {mean_snr:.1f} dB\n"
+            f"SNR mínima: {min_snr:.1f} dB\n"
+            f"UAVs: {len(uav_positions)}\n"
+            f"Resolución: {self.grid_resolution}m"
+        )
+        ax.text(
+            0.02, 0.98, info_text,
+            transform=ax.transAxes,
+            verticalalignment='top',
+            fontsize=9,
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9)
+        )
+
+        ax.set_xlabel('X (m)', fontsize=12)
+        ax.set_ylabel('Y (m)', fontsize=12)
+        ax.set_title('SNR Coverage Heatmap — Optimized UAV Placement', fontsize=14)
+        ax.set_aspect('equal', adjustable='box')
+
+        plt.tight_layout()
+        plt.savefig('snr_heatmap.png', dpi=200, bbox_inches='tight')
+        print("Heatmap saved as 'snr_heatmap.png'")
+        plt.show()
 
     def plot_grid(self, xx, yy):
         plt.figure(figsize=(8, 6))
