@@ -37,7 +37,7 @@
     "Step length (s)": 1.0,
     "Total time (s)": 4000,
     "Delay": 75,
-    "Number of UAVs": 4,
+    "Number of UAVs": 9,
     "uav_data": {
         "0": [
             [0,    1400.00, 1000.00, 0,  0],

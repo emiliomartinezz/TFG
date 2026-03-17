@@ -586,7 +586,7 @@ class UAVSimulation:
 
     
                 for uav_id, (uav_positions, times, uav_yaw_angles) in enumerate(zip(self.uav_positions_list, self.time_list, self.uav_yaw_angles_list)):
-                    
+                   # Skip battery logic if UAV is in standby 
                     if uav_state[str(uav_id)] == "STANDBY":
                         continue
 
@@ -636,66 +636,63 @@ class UAVSimulation:
                         if uav_id == (self.num_UAVs - 1):  
                             print ("\n")
 
+                        reserve_steps = 50 / self.simulation_step_length
+                        relay_buffer_steps = discharge_rate_home / 2 * self.simulation_step_length  # ejemplo: 2s -> convertir si quieres
+
+                        return_threshold = self.battery_life_steps - (discharge_rate_home + reserve_steps)
+                        relay_threshold  = self.battery_life_steps - (discharge_rate_home + reserve_steps + relay_buffer_steps)
+
     
                         if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (500 / self.simulation_step_length) and not warning_sent[str(uav_id)]:
                             battery_percentage =  500 / self.battery_life_steps * 100
                             non_blocking_warning("Battery Warning", f"Warning: UAV {uav_id} has {battery_percentage} percentage of battery left.")
                             warning_sent[str(uav_id)] = True
-                        if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (discharge_rate_home + 50 / self.simulation_step_length) and not return_sent[str(uav_id)]:
+                        if battery_life_steps[str(uav_id)] >= relay_threshold and self.relay_mode:
+                                partner_id = get_partner(uav_id)
+                                if uav_state[str(partner_id)] == "STANDBY":
+                                    uav_state[str(partner_id)] = "MISSION"
+                                    battery_life_steps[str(partner_id)] = 0
+                                    warning_sent[str(partner_id)] = False
+                                    return_sent[str(partner_id)] = False
+                                    stop_sent[str(partner_id)] = False
+                                    t_now = step * self.simulation_step_length
+                                    route_slot = partner_id % N
+                                    original_data = copy.deepcopy(self.original_uav_data[str(route_slot)])
+                                    #Get the current position and angle of the UAV on its original path at the time it left the mission 
+                                    curr_pos = uav_positions[step_idx]
+                                    curr_angle = uav_yaw_angles[step_idx]
+                                    #Create a new path for the partner UAV that starts at the current position of the returning UAV and then follows the original path from the point where the first UAV left it, time-shifted to now
+                                    future = [p for p in original_data if p[0] > t_now ]
+                                    partner_home = self.uav_home[partner_id]
+                                    dt = self.simulation_step_length
+                                    new_path = [
+                                        [0, partner_home[0], partner_home[1], partner_home[2], 0],
+                                        [t_now, partner_home[0], partner_home[1], partner_home[2], 0],
+                                        [t_now + dt, curr_pos[0], curr_pos[1], curr_pos[2], curr_angle]
+                                    ]
+
+                                    new_path.extend(future)
+
+                                    self.uav_data[str(partner_id)] = new_path
+                                    self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
+                                    non_blocking_warning("Relevo",
+                                        f"UAV {partner_id} releva a UAV {uav_id}")
+                                    
+                        if battery_life_steps[str(uav_id)] >= return_threshold and not return_sent[str(uav_id)]:
                             if uav_state[str(uav_id)] == "MISSION":
                                 uav_state[str(uav_id)] = "RETURNING"
-                                # Remember where in the original path we left off
                                 departure_time[str(uav_id)] = step * self.simulation_step_length
                                 non_blocking_warning("Battery Warning", f"Warning: Returning to base")
                                 home = self.uav_home[uav_id]
                                 t_now = step * self.simulation_step_length
-                                curr_pos = uav_positions[step]
-                                curr_angle = uav_yaw_angles[step]
+                                curr_pos = uav_positions[step_idx]
+                                curr_angle = uav_yaw_angles[step_idx]
                                 self.uav_data[str(uav_id)] = [
                                     [t_now, curr_pos[0], curr_pos[1], curr_pos[2], curr_angle],
                                     [t_now + 1, home[0], home[1], home[2], 0]
                                 ]
                                 self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
                                 return_sent[str(uav_id)] = True
-                                if self.relay_mode:
-                                    partner_id = get_partner(uav_id)
-                                    if uav_state[str(partner_id)] == "STANDBY":
-                                        uav_state[str(partner_id)] = "MISSION"
-                                        battery_life_steps[str(partner_id)] = 0
-                                        warning_sent[str(partner_id)] = False
-                                        return_sent[str(partner_id)] = False
-                                        stop_sent[str(partner_id)] = False
-                                        route_slot = partner_id % N
-                                        original_data = copy.deepcopy(self.original_uav_data[str(route_slot)])
-                                      # 1) waypoint exacto en t_now (posición “ideal” de la ruta)
-                                        
-                                        curr_pos = uav_positions[step]
-                                        curr_angle = uav_yaw_angles[step]
-
-                                        # 2) futuro: mantener waypoints con tiempo > t_now
-                                        future = [p for p in original_data if p[0] > t_now]
-
-                                        partner_home = self.uav_home[partner_id]
-
-                                        # 3) Construir nueva ruta del partner:
-                                        #    - de 0 a t_now: hovering en home
-                                        #    - en t_now: sigue estando en home (para que no teletransporte)
-                                        #    - en t_now + dt: ir hacia wp_now (sale inmediatamente)
-                                        dt = self.simulation_step_length
-
-                                        new_path = [
-                                            [0, partner_home[0], partner_home[1], partner_home[2], 0],
-                                            [t_now, partner_home[0], partner_home[1], partner_home[2], 0],
-                                            [t_now + dt, curr_pos[0], curr_pos[1], curr_pos[2], curr_angle]
-                                        ]
-
-                                        # 4) Añadir el resto de waypoints futuros (para continuar la misión)
-                                        new_path.extend(future)
-
-                                        self.uav_data[str(partner_id)] = new_path
-                                        self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
-                                        non_blocking_warning("Relevo",
-                                            f"UAV {partner_id} releva a UAV {uav_id}")
 
                         if battery_life_steps[str(uav_id)] >= self.battery_life_steps and not stop_sent[str(uav_id)]:
                             if polygon_exists[uav_id]:
