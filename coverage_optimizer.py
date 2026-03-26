@@ -1,7 +1,7 @@
 import json
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import TwoSlopeNorm
+from matplotlib.colors import Normalize, TwoSlopeNorm, LinearSegmentedColormap
 
 
 class Optimizer:
@@ -137,6 +137,7 @@ class Optimizer:
             json.dump(config, f, indent=4)
 
         print("\nConfig updated with optimized UAV positions.")
+        self.last_snr_grid = snr_current
         return optimal_positions
     
     def plot_snr_heatmap(self, snr_grid, uav_positions):
@@ -153,7 +154,7 @@ class Optimizer:
         if snr_min < threshold < snr_max:
             norm = TwoSlopeNorm(vmin=snr_min, vcenter=threshold, vmax=snr_max)
         else:
-            norm = None
+            norm = TwoSlopeNorm(vmin=snr_min, vcenter=threshold, vmax=threshold + 1e-6 )
 
         # --- Mapa de calor ---
         im = ax.pcolormesh(

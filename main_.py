@@ -15,7 +15,9 @@ from _utils import Calculations
 import copy
 import subprocess
 import time 
+from PIL import Image, ImageFilter
 from coverage_optimizer import Optimizer
+
 
 
 def non_blocking_warning(title, message):
@@ -109,6 +111,7 @@ class UAVSimulation:
         self.calc = Calculations(self.uav_speed, self.simulation_step_length, self.yaw_speed)
         self.uav_positions_list, self.time_list, self.uav_yaw_angles_list = self.uav_path_data()
         self.uav_home = {uav_id: self.uav_positions_list[uav_id][0] for uav_id in range(self.total_uavs)}
+        self.heatmap_polygons = []
 
     def read_config(self, config_file):
         try:
@@ -132,7 +135,19 @@ class UAVSimulation:
         self.server_option = config.get('Remote Server', False)
         self.local_gui = config.get('Local GUI', False)
         self.relay_mode = config.get('Relay Mode', False)
+        self.wind_mode = config.get('Wind Mode', False)
+        self.wind_speed = config.get('Wind Speed (m/s)', 0)
+        self.wind_direction = config.get('Wind Direction (deg)', 0)
         self.uav_data = config['uav_data']
+        self.xmax = config.get("xmax", 1000)
+        self.xmin = config.get("xmin", 0)
+        self.ymax = config.get("ymax", 1000)
+        self.ymin = config.get("ymin", 0)
+        self.grid_resolution = config.get("Grid resolution (m)", 20)
+        self.optimized_snr_grid = None
+        self.optimized_xx = None
+        self.optimized_yy = None
+        
         # Keep a copy of the original data for reference
         self.original_uav_data = copy.deepcopy(self.uav_data) 
 
@@ -212,7 +227,75 @@ class UAVSimulation:
             # Usamos v_max_ref para asegurar que el max_rate se aplique correctamente
             v_norm = (velocity - self.v_cruise) / (self.v_max - self.v_cruise)
             return self.cruise_rate + (self.max_rate - self.cruise_rate) * (v_norm ** 3)
-        
+    def snr_to_color(self, s, threshold, smin, smax, alpha=85):
+        # bajo umbral: rojo -> amarillo
+        if s <= threshold:
+            denom = max(1e-6, threshold - smin)
+            t = (s - smin) / denom   # 0..1
+            t = max(0.0, min(1.0, t))
+            r = 255
+            g = int(255 * t)
+            b = 0
+        # sobre umbral: amarillo -> verde
+        else:
+            denom = max(1e-6, smax - threshold)
+            t = (s - threshold) / denom
+            t = max(0.0, min(1.0, t))
+            r = int(255 * (1 - t))
+            g = 255
+            b = 0
+
+        return (r, g, b, alpha)
+
+    def add_snr_grid_overlay_exact(self):
+        if not hasattr(self, "optimized_snr_grid"):
+            print("[WARN] No optimized_snr_grid available.")
+            return
+
+        snr = self.optimized_snr_grid
+        xx = self.optimized_xx
+        yy = self.optimized_yy
+        th = self.config.get("Coverage threshold (dB)", 25)
+        flat = snr[np.isfinite(snr)]
+        smin = np.percentile(flat, 5)
+        smax = np.percentile(flat, 95)
+
+        ny, nx = snr.shape
+        dx = self.config.get("Grid resolution (m)", 20)
+        dy = dx
+
+        for j in range(ny):
+            for i in range(nx):
+                s = float(snr[j, i])
+                color = self.snr_to_color(s,th, smin, smax, alpha=85)
+                cx = float(xx[j, i]); cy = float(yy[j, i])
+                x0, x1 = cx - dx/2, cx + dx/2
+                y0, y1 = cy - dy/2, cy + dy/2
+
+                traci.polygon.add(
+                    polygonID=f"snr_cell_{i}_{j}",
+                    shape=[(x0,y0),(x1,y0),(x1,y1),(x0,y1)],
+                    color=color,
+                    fill=True,
+                    layer=1
+            )
+    
+    def apply_wind_effect(self, velocity, direction):
+        if not self.wind_mode:
+            return velocity
+
+        # vector UAV
+        vx = velocity * np.cos(direction)
+        vy = velocity * np.sin(direction)
+
+        # vector viento
+        wx = self.wind_speed * np.cos(self.wind_direction)
+        wy = self.wind_speed * np.sin(self.wind_direction)
+
+        # velocidad relativa al aire
+        v_rel = np.sqrt((vx - wx)**2 + (vy - wy)**2)
+
+        return v_rel
         
     def start_sumo(self):         
         if self.omnet_mode:
@@ -324,7 +407,8 @@ class UAVSimulation:
         icon_paths = {'Manual': "images/manualLQ.png",
                       'Mini 3 pro': "images/mini3proLQ.png",
                       'Mavic 2e': "images/mavic2e.png"}
-    
+        if self.otimization_mode and self.GuiOption:
+            self.add_snr_grid_overlay_exact()
         icon_path = icon_paths.get(self.UavModel, "images/manualLQ.png")
         self.battery_life_steps = int(self.battery_life)
         # Initialize battery_life_steps based on the first time value in uav_data
@@ -621,23 +705,38 @@ class UAVSimulation:
                             distance_home = np.linalg.norm(pos_now - np.array(self.uav_home[uav_id]))
                             time_home = distance_home / self.v_cruise if self.v_cruise > 0 else 0
                             discharge_rate_home = self.cruise_rate * time_home
-                            actual_velocity = distance / self.simulation_step_length
+                            discharge_rate_home_copy = discharge_rate_home
+                            if self.wind_mode:
+                                velocity = distance / self.simulation_step_length
+                                direction = np.arctan2(pos_now[1] - pos_prev[1], pos_now[0] - pos_prev[0])
+                                direction_home = np.arctan2(self.uav_home[uav_id][1] - pos_now[1], self.uav_home[uav_id][0] - pos_now[0])
+                                velocity_home_wind = self.apply_wind_effect(self.uav_speed, direction_home)
+                                discharge_rate_home =self.calculate_discharge_rate(velocity_home_wind) * time_home
+                                actual_velocity= self.apply_wind_effect(velocity, direction)
+                            else:
+                                actual_velocity = distance / self.simulation_step_length
                         else:
                             actual_velocity = 0
                             discharge_rate_home = 0
-                        
-                        #Discharge rate based on especifications and current velocity
-                        discharge_rate = self.calculate_discharge_rate(actual_velocity)
-                        #print(discharge_rate)
+                            
+                        if self.wind_mode and velocity < 0.1:
+                            wind_extra = (self.wind_speed / self.v_cruise) ** 2* 0.5
+                            discharge_rate = self.hover_rate + wind_extra
+                        else:
+                            #Discharge rate based on especifications and current velocity
+                            discharge_rate = self.calculate_discharge_rate(actual_velocity)
+                            #print(discharge_rate)
 
                         battery_life_steps[str(uav_id)] += discharge_rate
                         print(f"Discharge rate for UAV {uav_id}: {discharge_rate:.3f}, Home discharge rate: {discharge_rate_home}")
                         print(f"Battery life steps for UAV {uav_id}: {battery_life_steps[str(uav_id)]} / {self.battery_life_steps}")
                         if uav_id == (self.num_UAVs - 1):  
                             print ("\n")
-
-                        reserve_steps = 50 / self.simulation_step_length
-                        relay_buffer_steps = discharge_rate_home / 2 * self.simulation_step_length  # ejemplo: 2s -> convertir si quieres
+                        if self.wind_mode:
+                            relay_buffer_steps = discharge_rate_home_copy / 2 * self.simulation_step_length
+                        else:
+                            relay_buffer_steps = discharge_rate_home / 2 * self.simulation_step_length
+                        reserve_steps = 50 / self.simulation_step_length  
 
                         return_threshold = self.battery_life_steps - (discharge_rate_home + reserve_steps)
                         relay_threshold  = self.battery_life_steps - (discharge_rate_home + reserve_steps + relay_buffer_steps)
@@ -1013,7 +1112,9 @@ if __name__ == "__main__":
         optimizer = Optimizer(sim.config)
         optimizer.run(config_path="config.json", output_path="config_optimized.json")
         sim = UAVSimulation('config_optimized.json')
-
+        sim.optimized_snr_grid = optimizer.last_snr_grid 
+        sim.optimized_xx = optimizer.xx
+        sim.optimized_yy = optimizer.yy
     # Start the simulation in a separate thread so it doesn't block the Tkinter event loop
     simulation_thread = threading.Thread(target=start_simulation_thread, args=(sim, root))
     simulation_thread.start()

@@ -5,11 +5,14 @@
     "OMNeT Mode": false,
     "Optimization Mode": true,
     "Relay Mode": true,
-    "Path loss Exponent": 2.7,
-    "Coverage threshold (dB)": 25,
+    "Wind Mode": true,
+    "Wind Speed (m/s)": 5,
+    "Wind Direction (deg)": 0,
+    "Path loss Exponent": 2.8,
+    "Coverage threshold (dB)": 30,
     "Grid resolution (m)": 20,
     "Carrier frequency (GHz)": 3.5,
-    "tx_power_dbm": 30,
+    "tx_power_dbm": 40,
     "Height candidates": [
         80,
         100,
@@ -42,7 +45,7 @@
     "Step length (s)": 1.0,
     "Total time (s)": 4000,
     "Delay": 75,
-    "Number of UAVs": 9,
+    "Number of UAVs": 10,
     "uav_data": {
         "0": [
             [
@@ -102,8 +105,8 @@
             ],
             [
                 50,
-                570.0,
-                940.0,
+                650.0,
+                1600.0,
                 80,
                 0
             ]
@@ -118,8 +121,8 @@
             ],
             [
                 50,
-                630.0,
-                1560.0,
+                550.0,
+                900.0,
                 80,
                 0
             ]
@@ -134,8 +137,8 @@
             ],
             [
                 50,
-                1130.0,
-                940.0,
+                1150.0,
+                900.0,
                 80,
                 0
             ]
@@ -150,8 +153,8 @@
             ],
             [
                 50,
-                1110.0,
-                1560.0,
+                1150.0,
+                1580.0,
                 80,
                 0
             ]
@@ -167,7 +170,7 @@
             [
                 50,
                 270.0,
-                1580.0,
+                1560.0,
                 80,
                 0
             ]
@@ -182,8 +185,24 @@
             ],
             [
                 50,
-                1450.0,
-                1580.0,
+                210.0,
+                960.0,
+                80,
+                0
+            ]
+        ],
+        "9": [
+            [
+                0,
+                1400.0,
+                1000.0,
+                0,
+                0
+            ],
+            [
+                50,
+                1490.0,
+                960.0,
                 80,
                 0
             ]
