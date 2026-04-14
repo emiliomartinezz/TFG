@@ -3,6 +3,7 @@ Main code of SUAVPy
 """
 
 import threading
+from sumolib import color
 import traci
 import csv
 import numpy as np
@@ -170,7 +171,7 @@ class UAVSimulation:
             self.uav_speed = 13.8 #velocidad actual del uav, se usará para calcular la descarga de batería
             self.v_max = 13.8 #velocidad maxima, 50 km/h
             self.yaw_speed = 10
-            self.battery_life = int(1500 / self.simulation_step_length) # 25 minutes 
+            self.battery_life = int(1000 / self.simulation_step_length)  
         elif self.UavModel == 'Mini 3 pro':
             self.fov_degrees = [66.9161, 40.2499]
             t_h, t_c, t_m = 30*60, 34*60, 25*60 # tiempo de autonomia en: hovering, velocidad crucero y maxima velocidad respectivamente
@@ -200,7 +201,7 @@ class UAVSimulation:
         if not os.path.exists(self.sumocfg_file):
             raise FileNotFoundError(f"SUMO configuration file {self.sumocfg_file} not found.")
         if not os.path.exists(self.network_file):
-            raise FileNotFoundError(f"SUMO configuration file {self.network_file} not found.")
+            raise FileNotFoundError(f"SUMO network file {self.network_file} not found.")
     
         
         if self.server_option:
@@ -297,45 +298,28 @@ class UAVSimulation:
 
         return v_rel
         
-    def start_sumo(self):         
+    def start_sumo(self):
         if self.omnet_mode:
-            # Launch SUMO with the real simulation
-            sumo_binary = 'sumo-gui' if self.GuiOption else 'sumo'
-            sumo_cmd = [
-                sumo_binary, "-c", self.sumocfg_file,
-                "--step-length", str(self.simulation_step_length),
-                "--delay", str(self.delay_option),
-                "--start", "true",
-                "--quit-on-end", "True",
-                "--num-clients", "2",
-                "--remote-port", "9999"
-            ]
-
-            self.sumo_process = subprocess.Popen(sumo_cmd)
-            print("SUMO launched, waiting for 2 clients...")
-            print(">>> NOW LAUNCH OMNET++ <<<")
-            input("Press ENTER after you have started OMNeT++ simulation...")
-        
-            # Now Python connects as the second client
-            max_retries = 30
+            # SUMO is launched by veins_launchd_multiclient.py
+            # Python connects to the second proxy port (9998)
+            print("Connecting to SUMO via veins_launchd_multiclient (port 9998)...")
+            max_retries = 60
             for i in range(max_retries):
                 try:
-                    print(f">>> DEBUG 4: Trying traci.init attempt {i+1}...", flush=True)
-                    traci.init(port=9999)
+                    traci.init(port=9998)
                     break
                 except ConnectionRefusedError:
-                    print(f"Connecting to SUMO... ({i+1}/{max_retries})")
+                    print(f"Waiting for SUMO... ({i+1}/{max_retries})")
                     time.sleep(1)
             else:
-                raise RuntimeError("Could not connect to SUMO on port 9999")
+                raise RuntimeError("Could not connect to SUMO on port 9998")
 
-            traci.setOrder(0)  # Python goes first each step
-            print("Both clients connected! Simulation starting...")
-        
+            traci.setOrder(2)  # Python gets order 2, OMNeT++ gets order from ini
+            print("Python connected as client 2! Creating UAVs...")
+
             self.create_uav_vehicles()
-            # traci.simulationStep()
-            print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
-        
+            print("Vehicles:", traci.vehicle.getIDList(), flush=True)
+            
         else:
             sumo_cmd = [
                 'sumo-gui' if self.GuiOption else 'sumo', "-c",
@@ -358,7 +342,7 @@ class UAVSimulation:
             raise RuntimeError("No edges in SUMO network")
         size = 10.0
         dummy_edge = edges[20]
-
+        pid = "wind_label"
         if "dummy" not in traci.route.getIDList():
             traci.route.add("dummy", [dummy_edge])
 
@@ -389,12 +373,22 @@ class UAVSimulation:
                 layer=10
             )
 
-
-
             traci.vehicle.setSpeed(veh_id, 0)
             traci.vehicle.setSpeedMode(veh_id, 0)
             traci.vehicle.setLaneChangeMode(veh_id, 0)
             print(f"Vehículo {veh_id} añadido exitosamente.")
+        if self.wind_mode:
+           traci.poi.add(
+                poiID="wind_icon",
+                x=self.xmax + 50,
+                y=self.ymax - 50,
+                color=(255, 255, 255, 255),
+                imgFile="wind_arrow.png",
+                width=1000,
+                height=1000,
+                layer=50
+            )
+
 
             
             
@@ -667,7 +661,11 @@ class UAVSimulation:
                 for veh_id in traci.simulation.getDepartedIDList():
                     traci.vehicle.subscribe(veh_id, [traci.constants.VAR_POSITION, traci.constants.VAR_SPEED])
                 subscribed_data = traci.vehicle.getAllSubscriptionResults()
-
+                uav_ids = {f"uav{i}" for i in range(self.total_uavs)}
+                subscribed_data = {
+                    vid: data for vid, data in subscribed_data.items()
+                    if vid not in uav_ids and traci.constants.VAR_POSITION in data
+                }
     
                 for uav_id, (uav_positions, times, uav_yaw_angles) in enumerate(zip(self.uav_positions_list, self.time_list, self.uav_yaw_angles_list)):
                    # Skip battery logic if UAV is in standby 
@@ -717,7 +715,7 @@ class UAVSimulation:
                                 actual_velocity = distance / self.simulation_step_length
                         else:
                             actual_velocity = 0
-                            discharge_rate_home = 0
+                            discharge_rate_home = 0 
                             
                         if self.wind_mode and velocity < 0.1:
                             wind_extra = (self.wind_speed / self.v_cruise) ** 2* 0.5
@@ -829,13 +827,11 @@ class UAVSimulation:
                             # reduce the long if statements.
                             moved = index > 0 and (np.any(np.array(uav_positions[index - 1]) != np.array(uav_position)) or uav_yaw_angles[index - 1] != yaw_angle)
                             update_required = self.GuiOption and moved
-    
                             if self.GuiOption:
                                 if polygon_exists[uav_id] and update_required:
                                     self.calc.update_fov_polygon(uav_position, field_of_view_size, yaw_angle, polygon_ids[uav_id], border_polygon_ids[uav_id])
                                 if step % 1 == 0 and poi_exists[uav_id] and update_required: ## PERFORMANCE CHECK ##
                                     self.calc.update_poi(poi_ids[uav_id], uav_position, yaw_angle)
-    
                             if self.UavMode == 'Sampling':
                                 if moved:
                                     if polygon_exists[uav_id]:

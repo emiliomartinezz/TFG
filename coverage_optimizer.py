@@ -2,6 +2,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, TwoSlopeNorm, LinearSegmentedColormap
+from PIL import Image, ImageDraw
 
 
 class Optimizer:
@@ -20,6 +21,10 @@ class Optimizer:
         self.ymin = config.get("ymin")
         self.ymax = config.get("ymax")
 
+        self.wind_mode = config.get("Wind Mode", False)
+        self.wind_speed = config.get("Wind Speed (m/s)", 0.0)
+        self.wind_direction = float(config.get("Wind Direction (deg)", 0.0)) % 360
+
         self.height_candidates = config.get("Height candidates")
         self.h_ue = 1.5
         self.tx_power_dbm = config.get("tx_power_dbm", 30)
@@ -27,6 +32,56 @@ class Optimizer:
         self.xx, self.yy = self.generate_grid(
             self.xmin, self.xmax, self.ymin, self.ymax, self.grid_resolution
         )
+
+    def generate_wind_arrow_image(self,output_path="wind_arrow.png",size=(256, 256),arrow_color=(220, 20, 60, 255), bg_color=(255, 255, 255, 0), circle_color=(30, 144, 255, 255)):
+        direction = self.wind_direction % 360
+        w, h = size
+        cx, cy = w // 2, h // 2
+        length = int(min(w, h) * 0.35)
+
+        # Convertir ángulo a coordenadas de imagen
+        # x crece derecha, y crece abajo
+        theta = np.radians(direction)
+        x2 = cx + length * np.sin(theta)
+        y2 = cy - length * np.cos(theta)
+
+        img = Image.new("RGBA", size, bg_color)
+        draw = ImageDraw.Draw(img)
+
+        # Línea principal
+        draw.line((cx, cy, x2, y2), fill=arrow_color, width=8)
+
+        # Punta de flecha
+        head_len = max(14, int(length * 0.22))
+        head_angle = np.radians(25)
+
+        dx, dy = (x2 - cx), (y2 - cy)
+        line_angle = np.arctan2(dy, dx)
+
+        xh1 = x2 - head_len * np.cos(line_angle - head_angle)
+        yh1 = y2 - head_len * np.sin(line_angle - head_angle)
+        xh2 = x2 - head_len * np.cos(line_angle + head_angle)
+        yh2 = y2 - head_len * np.sin(line_angle + head_angle)
+
+        draw.polygon([(x2, y2), (xh1, yh1), (xh2, yh2)], fill=arrow_color)
+
+        # Centro
+        r = 5
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=circle_color)
+
+        # Texto opcional
+        label = f"Wind: {self.wind_speed:.1f} m/s | Dir: {direction:.0f}°"
+        offset = 5
+        tx = x2 + offset * np.sin(theta)
+        ty = y2 - offset * np.cos(theta)
+
+        # mantener dentro de la imagen
+        tx = int(np.clip(tx, 6, w - 180))
+        ty = int(np.clip(ty, 6, h - 100))
+
+        draw.text((tx, ty), label, fill=(0, 0, 0, 255))
+        img.save(output_path)
+        print(f"Wind arrow image saved as '{output_path}'")
 
     def generate_grid(self, xmin, xmax, ymin, ymax, delta):
         x_points = np.arange(xmin + delta / 2, xmax, delta)
@@ -80,6 +135,9 @@ class Optimizer:
         print(f"Coverage threshold: {self.coverage_threshold_db} dB")
         print(f"Height candidates: {self.height_candidates}")
         print(f"Number of UAVs to place: {self.num_UAVs}\n")
+
+        if self.wind_mode:
+            self.generate_wind_arrow_image(output_path="wind_arrow.png")
 
         snr_current = np.full_like(self.xx, -np.inf, dtype=float)
         optimal_positions = []

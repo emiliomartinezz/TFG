@@ -6,4 +6,7 @@
        height="0.3" 
        maxSpeed="20"
        guiShape="aircraft"/>
+
+       <vType id="car_type" 
+       vClass="passenger"/>
 </vTypes>
