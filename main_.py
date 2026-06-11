@@ -171,7 +171,7 @@ class UAVSimulation:
             self.uav_speed = 13.8 #velocidad actual del uav, se usará para calcular la descarga de batería
             self.v_max = 13.8 #velocidad maxima, 50 km/h
             self.yaw_speed = 10
-            self.battery_life = int(1000 / self.simulation_step_length)  
+            self.battery_life = int(1740 / self.simulation_step_length)  
         elif self.UavModel == 'Mini 3 pro':
             self.fov_degrees = [66.9161, 40.2499]
             t_h, t_c, t_m = 30*60, 34*60, 25*60 # tiempo de autonomia en: hovering, velocidad crucero y maxima velocidad respectivamente
@@ -420,6 +420,7 @@ class UAVSimulation:
         # Track the original-path time at which the UAV left its mission
         departure_time = {str(i): 0 for i in range(T)}
         #State of the UAV, used to determine if it is on a mission,returning to base or charging
+        step_times = []
         uav_state = {}
         for i in range(T):
             if self.relay_mode and i >= N:
@@ -450,7 +451,10 @@ class UAVSimulation:
                 server_thread.start()
                     
             while step < self.total_simulation_steps and not self.stop_flag:
+                t0 = time.perf_counter()
                 traci.simulationStep()
+                t1 = time.perf_counter()
+                step_times.append((t1 - t0) * 1000)
                 step += 1
 
                 for uav_id in range(T):
@@ -570,7 +574,6 @@ class UAVSimulation:
                 # print(traci.vehicle.getPosition("uav1"))
                 # print(traci.vehicle.getPosition("uav2"))
                 # print(traci.vehicle.getPosition("uav3"))
-
                 # print("\n")
                 if step == 650:
                     print("Vehicles after first step:", traci.vehicle.getIDList(), flush=True)
@@ -657,7 +660,6 @@ class UAVSimulation:
                 #     print(traci.vehicle.getPosition("uav2"))
                 #     print("\n")
                 
-    
                 for veh_id in traci.simulation.getDepartedIDList():
                     traci.vehicle.subscribe(veh_id, [traci.constants.VAR_POSITION, traci.constants.VAR_SPEED])
                 subscribed_data = traci.vehicle.getAllSubscriptionResults()
@@ -701,16 +703,16 @@ class UAVSimulation:
                             pos_prev = np.array(uav_positions[step_idx - 1])
                             distance = np.linalg.norm(pos_now - pos_prev)
                             distance_home = np.linalg.norm(pos_now - np.array(self.uav_home[uav_id]))
-                            time_home = distance_home / self.v_cruise if self.v_cruise > 0 else 0
-                            discharge_rate_home = self.cruise_rate * time_home
+                            time_home = distance_home / self.uav_speed if self.uav_speed > 0 else 0
+                            discharge_rate_home = self.calculate_discharge_rate(self.uav_speed) * time_home
                             discharge_rate_home_copy = discharge_rate_home
                             if self.wind_mode:
                                 velocity = distance / self.simulation_step_length
                                 direction = np.arctan2(pos_now[1] - pos_prev[1], pos_now[0] - pos_prev[0])
                                 direction_home = np.arctan2(self.uav_home[uav_id][1] - pos_now[1], self.uav_home[uav_id][0] - pos_now[0])
                                 velocity_home_wind = self.apply_wind_effect(self.uav_speed, direction_home)
-                                discharge_rate_home =self.calculate_discharge_rate(velocity_home_wind) * time_home
-                                actual_velocity= self.apply_wind_effect(velocity, direction)
+                                discharge_rate_home = self.calculate_discharge_rate(velocity_home_wind) * (distance_home / velocity_home_wind if velocity_home_wind > 0 else 0)
+                                actual_velocity = self.apply_wind_effect(velocity, direction)
                             else:
                                 actual_velocity = distance / self.simulation_step_length
                         else:
@@ -733,11 +735,11 @@ class UAVSimulation:
                         if self.wind_mode:
                             relay_buffer_steps = discharge_rate_home_copy / 2 * self.simulation_step_length
                         else:
-                            relay_buffer_steps = discharge_rate_home / 2 * self.simulation_step_length
+                            relay_buffer_steps =  time_home * discharge_rate
                         reserve_steps = 50 / self.simulation_step_length  
 
                         return_threshold = self.battery_life_steps - (discharge_rate_home + reserve_steps)
-                        relay_threshold  = self.battery_life_steps - (discharge_rate_home + reserve_steps + relay_buffer_steps)
+                        relay_threshold  = self.battery_life_steps - (discharge_rate_home + reserve_steps + relay_buffer_steps-5)
 
     
                         if battery_life_steps[str(uav_id)] >= self.battery_life_steps - (500 / self.simulation_step_length) and not warning_sent[str(uav_id)]:
@@ -854,11 +856,29 @@ class UAVSimulation:
                                     writer.writerow([step, step * self.simulation_step_length, uav_id, uav_position[0], uav_position[1], uav_position[2], yaw_angle, vehicle_id, position[0], position[1], speed])
             if self.local_gui:
                 self.stop_flag = True
-                user_input_thread.join()
+                user_input_thread.join(timeout=2)
                 
             if self.server_option:
                 self.stop_flag = True
                 server_thread.join()
+            
+        arr = np.array(step_times)
+        mode_label = "cosim" if self.omnet_mode else "normal"
+        print(f"\n{'='*50}")
+        print(f"  RENDIMIENTO ({mode_label})")
+        print(f"  Pasos ejecutados: {len(arr)}")
+        print(f"  Tiempo medio por paso: {arr.mean():.3f} ms")
+        print(f"  Mediana:               {np.median(arr):.3f} ms")
+        print(f"  Percentil 95:          {np.percentile(arr, 95):.3f} ms")
+        print(f"  Máximo:                {arr.max():.3f} ms")
+        print(f"  Tiempo total real:     {arr.sum()/1000:.2f} s")
+        print(f"{'='*50}\n")
+
+        # Guardar CSV para análisis posterior
+        with open(f"step_times_{mode_label}.csv", "w") as f:
+            f.write("step,time_ms\n")
+            for i, t in enumerate(step_times):
+                f.write(f"{i},{t:.4f}\n")
             
             
             

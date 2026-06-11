@@ -8,11 +8,11 @@
     "Wind Mode": false,
     "Wind Speed (m/s)": 5,
     "Wind Direction (deg)": 90,
-    "Path loss Exponent": 2.8,
+    "Path loss Exponent": 2.5,
     "Coverage threshold (dB)": 30,
     "Grid resolution (m)": 20,
     "Carrier frequency (GHz)": 3.5,
-    "tx_power_dbm": 37,
+    "tx_power_dbm": 32,
     "Height candidates": [
         80,
         100,
@@ -45,7 +45,7 @@
     "Step length (s)": 1.0,
     "Total time (s)": 4000,
     "Delay": 75,
-    "Number of UAVs": 5,
+    "Number of UAVs": 7,
     "uav_data": {
         "0": [
             [
@@ -105,8 +105,8 @@
             ],
             [
                 50,
-                570.0,
-                940.0,
+                630.0,
+                1580.0,
                 80,
                 0
             ]
@@ -121,8 +121,40 @@
             ],
             [
                 50,
-                630.0,
-                1560.0,
+                570.0,
+                920.0,
+                80,
+                0
+            ]
+        ],
+        "5": [
+            [
+                0,
+                1400.0,
+                1000.0,
+                0,
+                0
+            ],
+            [
+                50,
+                1130.0,
+                920.0,
+                80,
+                0
+            ]
+        ],
+        "6": [
+            [
+                0,
+                1400.0,
+                1000.0,
+                0,
+                0
+            ],
+            [
+                50,
+                1090.0,
+                1580.0,
                 80,
                 0
             ]

@@ -208,11 +208,15 @@ class Optimizer:
         threshold = self.coverage_threshold_db
 
         # TwoSlopeNorm centra el colormap en el umbral de cobertura
-        # Rojo = por debajo del umbral, Azul/Verde = por encima
-        if snr_min < threshold < snr_max:
-            norm = TwoSlopeNorm(vmin=snr_min, vcenter=threshold, vmax=snr_max)
+        # Rojo = por debajo del umbral, Verde = por encima
+        if snr_min >= threshold:
+        # Todos los valores están por encima del umbral, no necesitamos dos pendientes
+            norm = TwoSlopeNorm(vmin=threshold - 1, vcenter=threshold, vmax=snr_max if snr_max > threshold else threshold + 1)
+        elif snr_max <= threshold:
+            # Todos por debajo del umbral
+            norm = TwoSlopeNorm(vmin=snr_min, vcenter=threshold, vmax=threshold + 1)
         else:
-            norm = TwoSlopeNorm(vmin=snr_min, vcenter=threshold, vmax=threshold + 1e-6 )
+            norm = TwoSlopeNorm(vmin=snr_min, vcenter=threshold, vmax=snr_max)
 
         # --- Mapa de calor ---
         im = ax.pcolormesh(
