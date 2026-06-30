@@ -3,8 +3,8 @@
     "Remote Server": false,
     "Local GUI": true,
     "OMNeT Mode": true,
-    "Optimization Mode": true,
-    "Relay Mode": true,
+    "Optimization Mode": false,
+    "Relay Mode": false,
     "Wind Mode": false,
     "Wind Speed (m/s)": 5,
     "Wind Direction (deg)": 90,
@@ -40,7 +40,7 @@
     "Step length (s)": 1.0,
     "Total time (s)": 4000,
     "Delay": 75,
-    "Number of UAVs": 7,
+    "Number of UAVs": 4,
     "uav_data": {
         "0": [
             [0,    1400.00, 1000.00, 0,  0],
