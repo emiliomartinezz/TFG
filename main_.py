@@ -170,14 +170,14 @@ class UAVSimulation:
             self.v_cruise = 7.0 #velocidad crucero, 25 km/h
             self.uav_speed = 13.8 #velocidad actual del uav, se usará para calcular la descarga de batería
             self.v_max = 13.8 #velocidad maxima, 50 km/h
-            self.yaw_speed = 10
-            self.battery_life = int(1740 / self.simulation_step_length)  
+            self.yaw_speed = 15
+            self.battery_life = int(800 / self.simulation_step_length)  
         elif self.UavModel == 'Mini 3 pro':
             self.fov_degrees = [66.9161, 40.2499]
             t_h, t_c, t_m = 30*60, 34*60, 25*60 # tiempo de autonomia en: hovering, velocidad crucero y maxima velocidad respectivamente
             self.v_cruise = 6.0 #velocidad crucero, 21.6 km/h
             self.uav_speed = 6.0 #velocidad actual del uav, se usará para calcular la descarga de batería
-            self.v_max = 12.0 #velocidad maxima, 43.2 km/h
+            self.v_max = 16.0 #velocidad maxima, 43.2 km/h
             self.yaw_speed = 10
             self.battery_life = 600 # 30 minutes 
         elif self.UavModel == 'Manual':

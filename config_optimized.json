@@ -4,7 +4,7 @@
     "Local GUI": true,
     "OMNeT Mode": false,
     "Optimization Mode": true,
-    "Relay Mode": false,
+    "Relay Mode": true,
     "Wind Mode": false,
     "Wind Speed (m/s)": 5,
     "Wind Direction (deg)": 90,
